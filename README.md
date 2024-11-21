@@ -1,6 +1,4 @@
-# Wed-11-02-Lab-Group-6
-
-**PaperMind - AI powered Research Assistant**
+# PaperMind - AI powered Research Assistant
 
 PaperMind provides an easy and accessible way to search for key research topics, ideas or opinions and retrieve a list or network graph visualisation of the related studies, alongside summarised content of the studies. Users will get the option between two ways of connecting the research papers they prompt for: the first is based on citation metrics for connected papers and the second is based upon the supporting and opposing opinions for the input prompt. The output view will provide users a list or graph perspective, for easy and identifiable visual connections.
 
