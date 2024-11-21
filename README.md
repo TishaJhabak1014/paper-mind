@@ -60,7 +60,7 @@ PaperMind provides an easy and accessible way to search for key research topics,
 
 #### Contributors
 
-- Tisha Jhabak      tjha8527@uni.sydney.edu.au      
-- Angela Lai        alai7251@uni.sydney.edu.au
-- Vivian Ha         weha7612@uni.sydney.edu.au
-- Amanda Walpitage  awal8482@uni.sydney.edu.au          
+- Tisha Jhabak           
+- Angela Lai        
+- Vivian Ha         
+- Amanda Walpitage           
