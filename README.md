@@ -48,7 +48,7 @@ PaperMind provides an easy and accessible way to search for key research topics,
 - By default backend server will be available at ```http://localhost:8080```
 
 #### 2. React Frontend
-- In another terminal window, navigate to ```frontend``` directory within ```main/main``` 
+- In another terminal window, navigate to ```frontend``` directory
 - Install dependencies using ```npm install``` (first time setup)
 - Execute ```npm start``` to start your React application
 - View the frontend on the browser at ```http://localhost:3000```
