@@ -49,7 +49,7 @@ PaperMind provides an easy and accessible way to search for key research topics,
 
 #### 2. React Frontend
 - In another terminal window, navigate to ```frontend``` directory
-- Install dependencies using ```npm install``` (first time setup)
+- Install dependencies using ```npm install``` 
 - Execute ```npm start``` to start your React application
 - View the frontend on the browser at ```http://localhost:3000```
 
