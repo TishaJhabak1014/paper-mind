@@ -20,10 +20,10 @@ PaperMind provides an easy and accessible way to search for key research topics,
 - Ensure the postgresql server is running on your device
 
 #### SpringBoot Application
-- Ensure you have Java(Java 17) installed
+- Ensure you have Java (Java 17) installed
 
 #### React framework
-- Ensure you have Node.js(v20.10.0) installed
+- Ensure you have Node.js (v20.10.0) installed
 
 #### API keys
 - **Google AI Studio API** 
