@@ -57,10 +57,3 @@ PaperMind provides an easy and accessible way to search for key research topics,
 - Run the following command from the folder which contains the build.gradle to run the unit tests and build the reports.
 ```./gradlew clean test jacocoTestReport```
 - Find the jacoco test report in the directory build/jacocoHtml
-
-#### Contributors
-
-- Tisha Jhabak           
-- Angela Lai        
-- Vivian Ha         
-- Amanda Walpitage           
