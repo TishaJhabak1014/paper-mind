@@ -1,0 +1,84 @@
+name: Deploy to Cloud Run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      CLOUD_RUN_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
+      DB_URL: ${{ vars.DB_URL }}
+      DB_USERNAME: ${{ vars.DB_USERNAME }}
+      GOOGLE_AI_MODEL: ${{ vars.GOOGLE_AI_MODEL }}
+      VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build, publish, and deploy API and frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPOSITORY}"
+          api_image="${registry}/papermind-api:${GITHUB_SHA}"
+          web_image="${registry}/papermind-web:${GITHUB_SHA}"
+
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+          docker build -f Dockerfile -t "$api_image" .
+          docker push "$api_image"
+
+          gcloud run deploy papermind-api \
+            --image="$api_image" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --service-account="$CLOUD_RUN_SERVICE_ACCOUNT" \
+            --set-secrets="DB_PASSWORD=papermind-db-password:latest,GOOGLE_AI_API_KEY=papermind-google-ai-api-key:latest" \
+            --set-env-vars="^@^DB_URL=${DB_URL}@DB_USERNAME=${DB_USERNAME}@DDL_AUTO=validate@GOOGLE_AI_MODEL=${GOOGLE_AI_MODEL}@CORS_ALLOWED_ORIGINS=http://localhost:3000"
+
+          api_url="$(gcloud run services describe papermind-api --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.url)')"
+
+          docker build -f frontend/Dockerfile \
+            --build-arg "VITE_API_BASE_URL=${api_url}" \
+            --build-arg "VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}" \
+            -t "$web_image" frontend
+          docker push "$web_image"
+
+          gcloud run deploy papermind-web \
+            --image="$web_image" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=80 \
+            --max=5
+
+          web_url="$(gcloud run services describe papermind-web --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.url)')"
+          gcloud run services update papermind-api \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --update-env-vars="CORS_ALLOWED_ORIGINS=${web_url}"
+
+          {
+            echo "### PaperMind deployed"
+            echo "- Frontend: ${web_url}"
+            echo "- API: ${api_url}"
+          } >> "$GITHUB_STEP_SUMMARY"

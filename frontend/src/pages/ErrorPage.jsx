@@ -1,8 +1,12 @@
 import React from 'react';
 import { Container, Typography, Button, Box } from '@mui/material';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-const ErrorPage = ({ onRetry }) => {
+const ErrorPage = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const message = location.state?.message || 'We encountered an error while processing your request.';
     return (
         <Container maxWidth="sm" style={{ textAlign: 'center', marginTop: '20vh' }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -28,7 +32,7 @@ const ErrorPage = ({ onRetry }) => {
                     }} 
                     gutterBottom
                 >
-                    We encountered an error while processing your request.
+                    {message}
                 </Typography>
                 <Typography 
                     variant="body1" 
@@ -45,7 +49,7 @@ const ErrorPage = ({ onRetry }) => {
                 <Button 
                     variant="outlined" 
                     sx={{ color: 'darkred', borderColor: 'darkred' }}
-                    href="/" // Redirect to homepage or a safe page
+                    onClick={() => navigate('/')}
                 >
                     Go Back
                 </Button>

@@ -1,45 +1,40 @@
 import React from 'react';
-import { List, ListItem, ListItemText, Collapse, Typography, Link, Box,Divider, IconButton, CircularProgress } from '@mui/material';
+import { List, ListItem, ListItemText, Collapse, Typography, Link, Box, Divider, IconButton, CircularProgress, Button } from '@mui/material';
 import PaperDetailOpinion from './PaperDetailOpinion';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import axios from 'axios';
+import { api } from '../api';
 
 function PaperListOpinion({ papers, onGenerateSummaryClick }) {
   const [summaryOpen, setSummaryOpen] = React.useState({});
   const [summaries, setSummaries] = React.useState({});
+  const [summaryErrors, setSummaryErrors] = React.useState({});
   const [loading, setLoading] = React.useState({});
 
   const generateAISummary = async (id, abstract) => {
-    setSummaryOpen(prev => {
-      const isCurrentlyOpen = !prev[id];
-      return { ...prev, [id]: isCurrentlyOpen };  
-    });
-
-    // summary is not already fetched, make POST request
-    if (!summaries[id] && !loading[id]) {
-      setLoading(prev => ({ ...prev, [id]: true })); // set loading state for this paper
-
-      try {
-        const response = await axios.post('http://localhost:8080/api/generate-summary', {
-          abstract: abstract, // send abstract as the request body
-        });
-
-        setSummaries(prev => ({
-          ...prev,
-          [id]: response.data,  // store the fetched summary in state
-        }));
-
-      } catch (error) {
-        console.error('Error fetching AI summary:', error);
-        setSummaries(prev => ({
-          ...prev,
-          [id]: 'Failed to load summary. Please try again.',
-        }));
-      } finally {
-        setLoading(prev => ({ ...prev, [id]: false })); // reset loading state for this paper
-      }
+    if (loading[id] || summaries[id]) return;
+    setLoading(prev => ({ ...prev, [id]: true }));
+    setSummaryErrors(prev => ({ ...prev, [id]: null }));
+    try {
+      const response = await api.post('/api/generate-summary', { abstract });
+      setSummaries(prev => ({ ...prev, [id]: response.data }));
+    } catch (error) {
+      console.error('Error fetching AI summary:', error);
+      const message = typeof error.response?.data === 'string'
+        ? error.response.data
+        : 'The AI service is temporarily unavailable. Please retry.';
+      setSummaryErrors(prev => ({ ...prev, [id]: message }));
+    } finally {
+      setLoading(prev => ({ ...prev, [id]: false }));
     }
-  }
+  };
+
+  const toggleSummary = (paper) => {
+    const opening = !summaryOpen[paper.paperId];
+    setSummaryOpen(prev => ({ ...prev, [paper.paperId]: opening }));
+    if (opening && !summaries[paper.paperId] && !loading[paper.paperId]) {
+      generateAISummary(paper.paperId, paper.abstract);
+    }
+  };
 
   const onPaperSelect = (id) =>{
     onGenerateSummaryClick(id);
@@ -95,19 +90,32 @@ function PaperListOpinion({ papers, onGenerateSummaryClick }) {
                 </>
               }
             />
-            <Typography
-              variant="body2"
-              color="primary"
-              style={{ cursor: 'pointer', marginTop: 8 }}
-              onClick={() => generateAISummary(paper.paperId, paper.abstract)}
-            >
-              {summaryOpen[paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
-            </Typography>
+            {paper.abstract?.trim() ? (
+              <Typography
+                variant="body2"
+                color="primary"
+                style={{ cursor: 'pointer', marginTop: 8 }}
+                onClick={() => toggleSummary(paper)}
+              >
+                {summaryOpen[paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
+              </Typography>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                No abstract available for summary.
+              </Typography>
+            )}
           </ListItem>
           <Collapse in={summaryOpen[paper.paperId]} timeout="auto" unmountOnExit>
             <Box sx={{ maxWidth: '100%', paddingLeft: 4, paddingRight: 4, overflowWrap:'break-word', boxSizing:'border-box' }}>
                 {loading[paper.paperId] ? (
                   <CircularProgress size={24} /> // show loading spinner
+                ) : summaryErrors[paper.paperId] ? (
+                  <Box role="alert" sx={{ py: 1 }}>
+                    <Typography color="error" variant="body2">{summaryErrors[paper.paperId]}</Typography>
+                    <Button size="small" onClick={() => generateAISummary(paper.paperId, paper.abstract)}>
+                      Retry summary
+                    </Button>
+                  </Box>
                 ) : summaries[paper.paperId] ? (
                   <PaperDetailOpinion paper={{ ...paper, summary: summaries[paper.paperId] }} /> // pass AI summary to the PaperDetailOpinion
                 ) : null}

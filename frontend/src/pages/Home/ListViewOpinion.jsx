@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { CircularProgress, Container, Grid, Typography, Paper, Link, IconButton, Collapse, Box, Chip } from '@mui/material';
+import { CircularProgress, Container, Grid, Typography, Paper, Link, IconButton, Collapse, Box, Chip, Button, TextField, MenuItem, Tooltip } from '@mui/material';
 import TopNavigation from '../../components/TopNavigation';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PaperDetailOpinion from '../../components/PaperDetailOpinion';
-import axios from 'axios';  // Import axios for making requests
+import { api } from '../../api';
 
 function ListViewOpinion() {
     // State declarations
@@ -18,9 +18,14 @@ function ListViewOpinion() {
     const [isLoading, setIsLoading] = useState(true);
     const [summaryOpen, setSummaryOpen] = useState({});
     const [summaries, setSummaries] = useState({});  // Store the generated summaries
+    const [summaryErrors, setSummaryErrors] = useState({});
     const [loading, setLoading] = useState({});  // Track loading state per paper
     const [searchPrompt, setSearchPrompt] = useState('');
     const [currentView, setCurrentView] = useState('List View');
+    const [paperSearch, setPaperSearch] = useState('');
+    const [selectedYear, setSelectedYear] = useState('');
+    const [selectedType, setSelectedType] = useState('');
+    const [sortOrder, setSortOrder] = useState('newest');
     const navigate = useNavigate();
 
     // Define a consistent style for paper cards
@@ -92,40 +97,51 @@ function ListViewOpinion() {
       return types.join(' ');
     };
 
+    const publicationYears = [...new Set(graphPapers.map(paper => paper.publicationDate ? new Date(paper.publicationDate).getFullYear() : null).filter(Boolean))].sort((a, b) => b - a);
+    const publicationTypes = [...new Set(graphPapers.flatMap(paper => paper.publicationTypes || []))].sort();
+    const filterAndSortEntries = entries => entries.filter(({ paper, opinion }) => {
+        const query = paperSearch.trim().toLocaleLowerCase();
+        const searchable = [paper.title, paper.abstract, opinion, ...(paper.authors || []).map(author => author.name)].filter(Boolean).join(' ').toLocaleLowerCase();
+        return (!query || searchable.includes(query))
+            && (!selectedYear || (paper.publicationDate && String(new Date(paper.publicationDate).getFullYear()) === selectedYear))
+            && (!selectedType || (paper.publicationTypes || []).includes(selectedType));
+    }).sort((a, b) => {
+        const yearA = a.paper.publicationDate ? new Date(a.paper.publicationDate).getFullYear() : 0;
+        const yearB = b.paper.publicationDate ? new Date(b.paper.publicationDate).getFullYear() : 0;
+        return sortOrder === 'oldest' ? yearA - yearB : yearB - yearA;
+    });
+    const visibleSupportingPapers = filterAndSortEntries(supportingPapersList);
+    const visibleOpposingPapers = filterAndSortEntries(opposingPapersList);
+
+    const renderOpinionChip = (text, color) => (
+        <Tooltip title={text.replace(/_/g, ' ')} placement="top" arrow>
+            <Chip label={text.replace(/_/g, ' ')} color={color} size="small" sx={{ mb: 1, maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }} />
+        </Tooltip>
+    );
+
     // Function to generate AI summary when requested
     const generateAISummary = async (id, abstract) => {
-        if (!summaries[id] && !loading[id]) {  // Only fetch if not already loaded
-            setLoading(prev => ({ ...prev, [id]: true }));  // Set loading state
-
-            try {
-                const response = await axios.post('http://localhost:8080/api/generate-summary', {
-                    abstract: abstract,  // Pass the paper's abstract
-                });
-
-                setSummaries(prev => ({
-                    ...prev,
-                    [id]: response.data,  // Store the fetched summary
-                }));
-            } catch (error) {
-                console.error('Error fetching AI summary:', error);
-                setSummaries(prev => ({
-                    ...prev,
-                    [id]: 'Failed to load summary. Please try again.',  // Error handling
-                }));
-            } finally {
-                setLoading(prev => ({ ...prev, [id]: false }));  // Reset loading state
-            }
+        if (summaries[id] || loading[id]) return;
+        setLoading(prev => ({ ...prev, [id]: true }));
+        setSummaryErrors(prev => ({ ...prev, [id]: null }));
+        try {
+            const response = await api.post('/api/generate-summary', { abstract });
+            setSummaries(prev => ({ ...prev, [id]: response.data }));
+        } catch (error) {
+            console.error('Error fetching AI summary:', error);
+            const message = typeof error.response?.data === 'string'
+                ? error.response.data
+                : 'The AI service is temporarily unavailable. Please retry.';
+            setSummaryErrors(prev => ({ ...prev, [id]: message }));
+        } finally {
+            setLoading(prev => ({ ...prev, [id]: false }));
         }
     };
 
     const handleSummaryToggle = (id, abstract) => {
-      setSummaryOpen(prev => {  
-        const isCurrentlyOpen = !prev[id];
-        if (isCurrentlyOpen) {  // Only generate summary when opening
-            generateAISummary(id, abstract);  // Trigger the summary generation
-        }
-        return { ...prev, [id]: isCurrentlyOpen };  
-      });
+      const opening = !summaryOpen[id];
+      setSummaryOpen(prev => ({ ...prev, [id]: opening }));
+      if (opening && !summaries[id] && !loading[id]) generateAISummary(id, abstract);
     };
 
     if (isLoading) {
@@ -161,14 +177,26 @@ function ListViewOpinion() {
                     Results for {formattedPrompt}
                 </Typography>
                 <br />
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
+                    <TextField label="Search papers" placeholder="Title, author, opinion, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} size="small" sx={{ minWidth: 260, flex: 1 }} />
+                    <TextField select label="Year" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} size="small" sx={{ minWidth: 130 }}>
+                        <MenuItem value="">All years</MenuItem>{publicationYears.map(year => <MenuItem key={year} value={String(year)}>{year}</MenuItem>)}
+                    </TextField>
+                    <TextField select label="Document type" value={selectedType} onChange={e => setSelectedType(e.target.value)} size="small" sx={{ minWidth: 170 }}>
+                        <MenuItem value="">All types</MenuItem>{publicationTypes.map(type => <MenuItem key={type} value={type}>{type.replace(/([a-z])([A-Z])/g, '$1 $2')}</MenuItem>)}
+                    </TextField>
+                    <TextField select label="Sort by year" value={sortOrder} onChange={e => setSortOrder(e.target.value)} size="small" sx={{ minWidth: 150 }}>
+                        <MenuItem value="newest">Newest first</MenuItem><MenuItem value="oldest">Oldest first</MenuItem>
+                    </TextField>
+                </Box>
                 <Grid container spacing={3}>
                     <Grid item xs={12} md={6}>
                         <Typography variant="h6" fontWeight="light" fontSize="16px">Supporting Papers</Typography>
-                        {supportingPapersList.length > 0 ? (
-                            supportingPapersList.map((entry, index) => (
+                        {visibleSupportingPapers.length > 0 ? (
+                            visibleSupportingPapers.map((entry, index) => (
                                 <Paper key={index} sx={paperCardStyle}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Chip label={entry.opinion.replace(/_/g, ' ')} color={getChipColor('Supporting')} size="small" sx={{ marginBottom: '10px' }} />
+                                        {renderOpinionChip(entry.opinion, getChipColor('Supporting'))}
                                     </div>
 
                                     <Typography variant="h6" style={{ fontWeight: 'bold', color: '#302C29', fontSize: '20px' }}>{entry.paper.title}</Typography>
@@ -186,18 +214,31 @@ function ListViewOpinion() {
                                             </IconButton>
                                         </Link>
                                     )}
-                                    <Typography
-                                        variant="body2"
-                                        color="primary"
-                                        style={{ cursor: 'pointer', marginTop: 8 }}
-                                        onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract)}
-                                    >
-                                        {summaryOpen[entry.paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
-                                    </Typography>
+                                    {entry.paper.abstract?.trim() ? (
+                                        <Typography
+                                            variant="body2"
+                                            color="primary"
+                                            style={{ cursor: 'pointer', marginTop: 8 }}
+                                            onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract)}
+                                        >
+                                            {summaryOpen[entry.paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
+                                        </Typography>
+                                    ) : (
+                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                            No abstract available for summary.
+                                        </Typography>
+                                    )}
                                     <Collapse in={summaryOpen[entry.paper.paperId]} timeout="auto" unmountOnExit>
                                         <Box sx={{ width: '90%', paddingLeft: 4, paddingRight: 4 }}>
                                             {loading[entry.paper.paperId] ? (
                                                 <CircularProgress size={24} />
+                                            ) : summaryErrors[entry.paper.paperId] ? (
+                                                <Box role="alert" sx={{ py: 1 }}>
+                                                    <Typography color="error" variant="body2">{summaryErrors[entry.paper.paperId]}</Typography>
+                                                    <Button size="small" onClick={() => generateAISummary(entry.paper.paperId, entry.paper.abstract)}>
+                                                        Retry summary
+                                                    </Button>
+                                                </Box>
                                             ) : summaries[entry.paper.paperId] ? (
                                                 <PaperDetailOpinion paper={{ ...entry.paper, summary: summaries[entry.paper.paperId] }} />
                                             ) : null}
@@ -211,11 +252,11 @@ function ListViewOpinion() {
                     </Grid>
                     <Grid item xs={12} md={6}>
                         <Typography variant="h6" fontWeight="light" fontSize="16px">Opposing Papers</Typography>
-                        {opposingPapersList.length > 0 ? (
-                            opposingPapersList.map((entry, index) => (
+                        {visibleOpposingPapers.length > 0 ? (
+                            visibleOpposingPapers.map((entry, index) => (
                                 <Paper key={index} sx={paperCardStyle}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Chip label={entry.opinion} color={getChipColor('Opposing')} size="small" sx={{ marginBottom: '10px' }} />
+                                        {renderOpinionChip(entry.opinion, getChipColor('Opposing'))}
                                     </div>
 
                                     <Typography variant="h6" style={{ fontWeight: 'bold', color: '#302C29', fontSize: '20px' }}>{entry.paper.title}</Typography>
@@ -233,18 +274,31 @@ function ListViewOpinion() {
                                             </IconButton>
                                         </Link>
                                     )}
-                                    <Typography
-                                        variant="body2"
-                                        color="primary"
-                                        style={{ cursor: 'pointer', marginTop: 8 }}
-                                        onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract)}
-                                    >
-                                        {summaryOpen[entry.paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
-                                    </Typography>
+                                    {entry.paper.abstract?.trim() ? (
+                                        <Typography
+                                            variant="body2"
+                                            color="primary"
+                                            style={{ cursor: 'pointer', marginTop: 8 }}
+                                            onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract)}
+                                        >
+                                            {summaryOpen[entry.paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
+                                        </Typography>
+                                    ) : (
+                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                            No abstract available for summary.
+                                        </Typography>
+                                    )}
                                     <Collapse in={summaryOpen[entry.paper.paperId]} timeout="auto" unmountOnExit>
                                         <Box sx={{ width: '90%', paddingLeft: 4, paddingRight: 4 }}>
                                             {loading[entry.paper.paperId] ? (
                                                 <CircularProgress size={24} />
+                                            ) : summaryErrors[entry.paper.paperId] ? (
+                                                <Box role="alert" sx={{ py: 1 }}>
+                                                    <Typography color="error" variant="body2">{summaryErrors[entry.paper.paperId]}</Typography>
+                                                    <Button size="small" onClick={() => generateAISummary(entry.paper.paperId, entry.paper.abstract)}>
+                                                        Retry summary
+                                                    </Button>
+                                                </Box>
                                             ) : summaries[entry.paper.paperId] ? (
                                                 <PaperDetailOpinion paper={{ ...entry.paper, summary: summaries[entry.paper.paperId] }} />
                                             ) : null}

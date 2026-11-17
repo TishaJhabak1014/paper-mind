@@ -34,7 +34,7 @@ class GeminiServiceTests {
     public void setUp() {
         MockitoAnnotations.openMocks(this);
         geminiKey = "test-key";
-        apiUrl = String.format("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=%s", geminiKey);
+        apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
     }
 
     @Test

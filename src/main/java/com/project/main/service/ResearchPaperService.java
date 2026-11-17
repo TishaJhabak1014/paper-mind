@@ -31,6 +31,13 @@ public class ResearchPaperService {
         return researchPaper.orElse(null);
     }
 
+    public ResearchPaper getReferenceBySemanticPaperId(String semanticPaperId) {
+        return researchPaperRepo.findIdsBySemanticPaperId(semanticPaperId).stream()
+                .findFirst()
+                .map(researchPaperRepo::getReferenceById)
+                .orElse(null);
+    }
+
     public ResearchPaper saveResearchPaper(ResearchPaper researchPaper) {
         return researchPaperRepo.save(researchPaper);
     }

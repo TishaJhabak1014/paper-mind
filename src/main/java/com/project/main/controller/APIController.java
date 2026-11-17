@@ -4,16 +4,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import org.json.JSONArray;
 
@@ -26,11 +25,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Set;
 import java.util.HashSet;
-import java.util.Iterator;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/data")
-@CrossOrigin(origins = "http://localhost:3000")
 public class APIController {
 
 	@Autowired
@@ -72,7 +70,7 @@ public class APIController {
 	@Autowired
 	OpinionEdgeIdService opinionEdgeIdService;
 
-	@Value("${apiKey}")
+	@Value("${google.ai.api-key:}")
     private String apiKey;
 
 	public APIController() {
@@ -124,6 +122,11 @@ public class APIController {
 		for (JsonNode paperNode : fetchedPapers) {
 			String title = paperNode.get("title").asText();		
 			String paperId = paperNode.get("paperId").asText();			
+			// Failed or repeated searches can leave existing rows; reuse them instead of inserting duplicates.
+			if (researchPaperService.getReferenceBySemanticPaperId(paperId) != null) {
+				continue;
+			}
+
 			LocalDate publishedDate = null; // Initialize to null
 			if (paperNode.has("publicationDate") && !paperNode.get("publicationDate").isNull()) {
 				String publicationDateStr = paperNode.get("publicationDate").asText();
@@ -202,27 +205,32 @@ public class APIController {
 		graphService.saveGraph(graph);
 
 		// ------------ Citation-based ------------------
-		
-		// semantic (2): get the top cited papers's next 5 citations (ideally some papers cite each other)
+		// Fetch citation edges only for citation graphs, and only for a small top-paper sample.
 		ObjectNode fetchedCitations = objectMapper.createObjectNode();
-		
-		for (JsonNode paper: fetchedPapers) {
-			try {
-				String paperID = paper.get("paperId").asText();
-				JsonNode citation = semanticService.citationSearch(paperID).getBody();
-
-				fetchedCitations.set(paperID, citation);
-				
-				Thread.sleep(1000); // semantic limit is 1rps
-			} catch (Exception e) {
-				e.printStackTrace();
-			}	
+		boolean citationGraph = userPrompt.getGraphViewType() == GraphViewType.CITATION;
+		if (citationGraph) {
+			int sourcePaperCount = 0;
+			for (JsonNode paper : fetchedPapers) {
+				if (sourcePaperCount++ >= 5) {
+					break;
+				}
+				String paperID = paper.path("paperId").asText();
+				try {
+					JsonNode citation = semanticService.citationSearch(paperID).getBody();
+					fetchedCitations.set(paperID, citation != null && citation.isArray()
+							? citation
+							: objectMapper.createArrayNode());
+				} catch (Exception exception) {
+					fetchedCitations.set(paperID, objectMapper.createArrayNode());
+				}
+			}
 		}
 
 		// if citiation graph, then create citationedge
-		if (userPrompt.getGraphViewType() != GraphViewType.NONE && userPrompt.getGraphViewType() == GraphViewType.CITATION) {
-			fetchedCitations.fieldNames().forEachRemaining(firstPaperId -> {
-				ResearchPaper firstResearchPaper = researchPaperService.getResearchPaperBySemanticPaperId(firstPaperId);
+		if (citationGraph) {
+			fetchedCitations.properties().forEach(citationEntry -> {
+				String firstPaperId = citationEntry.getKey();
+				ResearchPaper firstResearchPaper = researchPaperService.getReferenceBySemanticPaperId(firstPaperId);
 
 				JsonNode citingPapers = fetchedCitations.get(firstPaperId);
 				citingPapers.forEach(citingPaperNode -> {
@@ -235,7 +243,7 @@ public class APIController {
 					String secondPaperId = citingPaper.get("paperId").asText();
     				System.out.println("Retrieved paperId: " + secondPaperId);
 
-					ResearchPaper secondResearchPaper = researchPaperService.getResearchPaperBySemanticPaperId(secondPaperId);
+					ResearchPaper secondResearchPaper = researchPaperService.getReferenceBySemanticPaperId(secondPaperId);
 
 					// second paper does not exist
 					// NOTE: there is less information here, they lack title, etc.
@@ -281,17 +289,15 @@ public class APIController {
 
 		// if opinion graph, then create opinions, opinionrelatedpapers and opinionedges
 		if (userPrompt.getGraphViewType() != GraphViewType.NONE && userPrompt.getGraphViewType() == GraphViewType.OPINION) {
-			Iterator<String> fieldNames = categorizedResponseJSON.fieldNames();
-			while (fieldNames.hasNext()) {
-				String key = fieldNames.next();
-				JsonNode opinionCategoryNode = categorizedResponseJSON.get(key);
+			for (Map.Entry<String, JsonNode> categoryEntry : categorizedResponseJSON.properties()) {
+				String key = categoryEntry.getKey();
+				JsonNode opinionCategoryNode = categoryEntry.getValue();
 
 				String opinionType = key.equals("supporting") ? "supporting" : "opposing";
 
 				if (opinionCategoryNode != null && opinionCategoryNode.isObject()) {
-					Iterator<String> categoryNames = opinionCategoryNode.fieldNames();
-					while (categoryNames.hasNext()) {
-						String opinionVal = categoryNames.next();
+					for (Map.Entry<String, JsonNode> opinionEntry : ((ObjectNode) opinionCategoryNode).properties()) {
+						String opinionVal = opinionEntry.getKey();
 
 						// save new opinion
 						Opinion opinion = new Opinion(); 
@@ -307,13 +313,13 @@ public class APIController {
 						opinionService.saveOpinion(opinion);
 
 						// save opinionrelatedpaper object
-						JsonNode paperIdsArray = opinionCategoryNode.get(opinionVal);
+						JsonNode paperIdsArray = opinionEntry.getValue();
 						if (paperIdsArray.isArray()) {
 							for (JsonNode paperIdNode : paperIdsArray) {
 								String paperId = paperIdNode.asText();
 
 								// find researchpaper related to the paperId
-								ResearchPaper researchPaper = researchPaperService.getResearchPaperBySemanticPaperId(paperId);
+								ResearchPaper researchPaper = researchPaperService.getReferenceBySemanticPaperId(paperId);
 
 								if (researchPaper == null) {
 									researchPaper = new ResearchPaper();
@@ -346,7 +352,7 @@ public class APIController {
 
 			try {
 				return ResponseEntity.ok(objectMapper.writeValueAsString(categorizedResponseJSON)); // final output: JSON list of papers + support/opposing
-			} catch (JsonProcessingException e) {
+			} catch (JacksonException e) {
 				e.printStackTrace();
 				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("No gemini response (2) received.");
 			} 
@@ -383,14 +389,34 @@ public class APIController {
 		try {
 			ObjectMapper objectMapper = new ObjectMapper();
 			JsonNode jsonNode = objectMapper.readTree(responseBody);
-	
-			String text = jsonNode.path("candidates").get(0)
-					.path("content").path("parts").get(0)
-					.path("text").asText()
-					.replaceAll("\\*|\\n", " ").trim();
-	
-			String keywords = text.substring(text.indexOf("keywords:") + 9, text.indexOf("sentiment:")).trim();
-			String sentiment = text.substring(text.indexOf("sentiment:") + 10).trim();
+
+			String text = jsonNode.path("candidates").path(0)
+					.path("content").path("parts").path(0)
+					.path("text").asText("")
+					.replaceAll("```[a-zA-Z]*", "")
+					.replaceAll("\\*|\\r|\\n", " ").trim();
+			if (text.isBlank()) {
+				return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(null);
+			}
+
+			String lowerText = text.toLowerCase(java.util.Locale.ROOT);
+			int keywordsLabel = lowerText.indexOf("keywords:");
+			int sentimentLabel = lowerText.indexOf("sentiment:");
+			String keywords;
+			if (keywordsLabel >= 0) {
+				int keywordsStart = keywordsLabel + "keywords:".length();
+				int keywordsEnd = sentimentLabel > keywordsStart ? sentimentLabel : text.length();
+				keywords = text.substring(keywordsStart, keywordsEnd).trim();
+			} else {
+				// Keep a usable query if Gemini returns plain text instead of the requested labels.
+				keywords = text;
+			}
+			String sentiment = sentimentLabel >= 0
+					? text.substring(sentimentLabel + "sentiment:".length()).trim()
+					: "unknown";
+			if (keywords.isBlank()) {
+				return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(null);
+			}
 	
 			ObjectNode responseJson = objectMapper.createObjectNode();
 			responseJson.put("keywords", keywords);

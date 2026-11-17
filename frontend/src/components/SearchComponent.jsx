@@ -4,7 +4,7 @@ import IconButton from '@mui/material/IconButton';
 import SearchIcon from '@mui/icons-material/Search';
 import '../styles/components/SearchComponent.css';
 import CitationOpinionToggle from '../components/CitationOpinionToggle';
-import axios from 'axios';
+import { api } from '../api';
 import { useSearch } from '../context/SearchContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,58 +17,46 @@ export default function SearchComponent() {
     const [loading, setLoading] = useState(false);
 
     const handleSearch = async () => {
-        updateSearchData('searchPrompt', searchQuery);
+        const prompt = searchQuery.trim();
+        if (!prompt || loading) return;
+
+        const requestData = {
+            ...searchData,
+            searchPrompt: prompt,
+            selectedFilter: category,
+        };
+        updateSearchData('searchPrompt', prompt);
         updateSearchData('selectedFilter', category);
         setLoading(true);
 
+        navigate('/loading');
         try {
-            if (searchData['graphViewType'] === 'CITATION') {
-                // navigate('papers-graphview', { state: { loading: true } });
-                navigate('/loading');
-            } else if (searchData['graphViewType'] === 'OPINION') {
-                // navigate('papers-opinion-graphview', { state: { loading: true } });
-                navigate('/loading');
+            const response = await api.post('/api/data', requestData);
+            const top20papers = response.data.Papers || [];
+            const supporting = response.data.supporting || {};
+            const opposing = response.data.opposing || {};
+            const citations = response.data.Citations || {};
+            setGraphPapers(top20papers);
+
+            if (requestData.graphViewType === 'CITATION') {
+                navigate('/papers-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: requestData.graphViewType, prompt, supporting, opposing, citations, selectedFilter: category } });
+            } else {
+                navigate('/papers-opinion-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: requestData.graphViewType, supporting, opposing, prompt } });
             }
-
-            axios.post('http://localhost:8080/api/data', searchData)
-                .then(response => {
-                    const top20papers = response.data.Papers;
-                    const supporting = response.data.supporting;
-                    const opposing = response.data.opposing;
-                    const citations = response.data.Citations;
-
-                    // printing out citations
-                    console.log(typeof response.data.Citations);
-                    if (citations) {
-                        Object.keys(citations).forEach(citationKey => {
-                        console.log(typeof citations[citationKey]);
-                        console.log(`Key: ${citationKey}, Value:`, citations[citationKey]);
-                    });
-                    } else {
-                        console.log('Citations not found');
-                    }
-
-
-                    setGraphPapers(top20papers);
-                    console.log(response.data);
-                    if (searchData['graphViewType'] === 'CITATION') {
-                        navigate('papers-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: searchData['graphViewType'], prompt:searchData['searchPrompt'], supporting, opposing, citations, selectedFilter: category  }});
-                    } else if (searchData['graphViewType'] === 'OPINION') {
-                        navigate('papers-opinion-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: searchData['graphViewType'], supporting, opposing, prompt:searchData['searchPrompt'] } });
-                    }
-                })
-                .catch(error => {
-                    console.error('Failed to fetch data', error);
-                    if (searchData['graphViewType'] === 'CITATION') {
-                        // navigate('papers-graphview', { state: { loading: false, error: true } });
-                        navigate('/error');
-                    } else if (searchData['graphViewType'] === 'OPINION') {
-                        // navigate('papers-opinion-graphview', { state: { loading: false, error: true } });
-                        navigate('error/');
-                    }
-                });
         } catch (error) {
-            console.error('Failed to send data', error);
+            console.error('Failed to fetch search results:', error);
+            const status = error.response?.status;
+            const responseBody = error.response?.data;
+            const message = typeof responseBody === 'string' && responseBody.length < 300
+                ? responseBody
+                : status === 429
+                    ? 'The research provider is rate limiting requests. Please wait briefly and retry.'
+                    : status === 503
+                        ? 'The AI provider is temporarily busy. Please retry in a short while.'
+                        : 'Search could not be completed. Please retry.';
+            navigate('/error', { state: { message } });
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -127,7 +115,7 @@ export default function SearchComponent() {
                                 },
                                 endAdornment: (
                                     <InputAdornment position="end">
-                                        <IconButton onClick={handleSearch} edge="end" className="search-icon-button">
+                                            <IconButton onClick={handleSearch} edge="end" className="search-icon-button" disabled={loading}>
                                             <SearchIcon />
                                         </IconButton>
                                     </InputAdornment>

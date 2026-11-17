@@ -3,7 +3,7 @@ import { CircularProgress, Container, Grid, Typography, TextField, MenuItem, Box
 import PaperListOpinion from '../../components/PaperListOpinion';
 import TopNavigation from '../../components/TopNavigation';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { api } from '../../api';
 
 
 function ListViewCitation() {
@@ -18,6 +18,8 @@ function ListViewCitation() {
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedAuthor, setSelectedAuthor] = useState('');
   const [selectedType, setSelectedType] = useState('');
+  const [paperSearch, setPaperSearch] = useState('');
+  const [sortOrder, setSortOrder] = useState('newest');
   const location = useLocation();
   const [searchPrompt, setSearchPrompt] = useState('');
   
@@ -46,33 +48,46 @@ function ListViewCitation() {
 
   const formattedPrompt = capitalizeWords(searchPrompt);
 
+  const publicationTypes = [...new Set(graphPapers.flatMap(paper => paper.publicationTypes || []))].sort();
+
   const applyFilters = () => {
     let filtered = [...graphPapers];
+    const query = paperSearch.trim().toLocaleLowerCase();
+
+    if (query) {
+      filtered = filtered.filter(paper => [paper.title, paper.abstract, ...(paper.authors || []).map(author => author.name)]
+        .filter(Boolean).some(value => value.toLocaleLowerCase().includes(query)));
+    }
 
     if (selectedYear) {
       filtered = filtered.filter(paper => new Date(paper.publicationDate).getFullYear() === parseInt(selectedYear));
     }
     if (selectedAuthor) {
-      filtered = filtered.filter(paper => paper.authors.some(author => author.name.includes(selectedAuthor)));
+      filtered = filtered.filter(paper => (paper.authors || []).some(author => author.name.toLocaleLowerCase().includes(selectedAuthor.toLocaleLowerCase())));
     }
     if (selectedType) {
       filtered = filtered.filter(paper => paper.publicationTypes && paper.publicationTypes.includes(selectedType));
     }
 
+    filtered.sort((a, b) => {
+      const yearA = a.publicationDate ? new Date(a.publicationDate).getFullYear() : 0;
+      const yearB = b.publicationDate ? new Date(b.publicationDate).getFullYear() : 0;
+      return sortOrder === 'oldest' ? yearA - yearB : yearB - yearA;
+    });
     setFilteredPapers(filtered);
   };
 
   useEffect(() => {
-    if (selectedYear || selectedAuthor || selectedType) {
+    if (selectedYear || selectedAuthor || selectedType || paperSearch || sortOrder) {
       applyFilters();
     } else {
       setFilteredPapers(graphPapers); // Reset to initial state when all filters are cleared
     }
-  }, [selectedYear, selectedAuthor, selectedType, graphPapers]);
+  }, [selectedYear, selectedAuthor, selectedType, graphPapers, paperSearch, sortOrder]);
 
   const generateAISummary = async (paperId, abstract) => {
     try {
-      const response = await axios.post('http://localhost:8080/api/generate-summary', { abstract });
+      const response = await api.post('/api/generate-summary', { abstract });
       console.log('AI Summary:', response.data);
     } catch (error) {
       console.error('Error fetching AI summary:', error);
@@ -105,6 +120,12 @@ function ListViewCitation() {
             <Box sx={{ paddingRight: '20px' }}>
               <Typography variant="h6" sx={{ color: 'black', fontWeight: 'light' }}>Apply Filters</Typography>
               <br></br>
+              <TextField fullWidth label="Search papers" placeholder="Title, author, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} sx={{ mb: 2 }} />
+              <Typography sx={{ color: 'black', fontWeight: 'light' }}>Sort by year</Typography>
+              <TextField fullWidth select label="Publication year" value={sortOrder} onChange={e => setSortOrder(e.target.value)} sx={{ mb: 2 }}>
+                <MenuItem value="newest">Newest first</MenuItem>
+                <MenuItem value="oldest">Oldest first</MenuItem>
+              </TextField>
               <Typography sx={{ color: 'black', fontWeight: 'light' }}>Year</Typography>
               <TextField
                 fullWidth
@@ -140,10 +161,7 @@ function ListViewCitation() {
                 style={{ marginBottom: '20px'}}
               >
                 <MenuItem value="">All Types</MenuItem>
-                <MenuItem value="JournalArticle">Journal</MenuItem>
-                <MenuItem value="Conference">Conference</MenuItem>
-                <MenuItem value="Book">Book</MenuItem>
-                <MenuItem value="Review">Review</MenuItem>
+                {publicationTypes.map(type => <MenuItem key={type} value={type}>{type.replace(/([a-z])([A-Z])/g, '$1 $2')}</MenuItem>)}
               </TextField>
             </Box>
           </Grid>
