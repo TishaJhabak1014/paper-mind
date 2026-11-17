@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import HomeIcon from '@mui/icons-material/Home';
 
-const TopNavigation = ({ currentView, onViewChange, papers, viewtype, supporting, opposing, prompt, citations }) => {
+const TopNavigation = ({ currentView, onViewChange, papers, viewtype, supporting, opposing, prompt, citations, selectedFilter = 'ALL' }) => {
     const [anchorEl, setAnchorEl] = React.useState(null);
     const navigate = useNavigate();
 
@@ -19,14 +19,14 @@ const TopNavigation = ({ currentView, onViewChange, papers, viewtype, supporting
             // Navigate to the List View page when "List View" is selected from the dropdown
             if (viewtype === 'CITATION'){
                 console.log(prompt);
-                navigate('/list-view', { state: { papers, prompt, currentView:'List View', supporting, opposing, citations} }); // Redirect to ListViewPage with papers
+            navigate('/list-view', { state: { papers, prompt, currentView:'List View', supporting, opposing, citations, selectedFilter} }); // Redirect to ListViewPage with papers
             }else if (viewtype === 'OPINION'){ 
                 navigate('/opinion-list-view', { state: { papers, supporting, opposing, prompt, currentView:'List View'} }); 
             }
         } else if (viewOption === 'Graph View') {
             onViewChange('Graph View');
             if (viewtype === 'CITATION'){
-                navigate('/papers-graphview', { state: { papers, prompt, currentView:'Graph View', supporting, opposing, citations} }); // Redirect to ListViewPage with papers
+                navigate('/papers-graphview', { state: { papers, prompt, currentView:'Graph View', supporting, opposing, citations, selectedFilter} }); // Redirect to ListViewPage with papers
             }else if (viewtype === 'OPINION'){ 
                 navigate('/papers-opinion-graphview', { state: { papers, supporting, opposing, prompt, currentView:'Graph View'} }); 
             }

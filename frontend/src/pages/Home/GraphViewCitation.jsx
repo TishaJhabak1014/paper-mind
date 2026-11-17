@@ -21,6 +21,8 @@ function GraphViewCitation() {
   const [currentView, setCurrentView] = useState('Graph View');
   const [graphViewType, setGraphViewType] = useState('Graph View');
   const visJsRef = useRef(null); 
+  const networkRef = useRef(null);
+  const [highlightedPaperId, setHighlightedPaperId] = useState(null);
   const [citations, setCitations] = useState({});
   const [supporting, setSupporting] = useState({});
   const [opposing, setOpposing] = useState({});
@@ -89,13 +91,35 @@ function GraphViewCitation() {
     const addedNodes = new Set();
     const addedEdges = new Set(); // Track added edges
     const nodesWithIncomingEdges = new Set(); // Track nodes with incoming edges
+
+    const citationCounts = new Map();
+    graphPapers.forEach(paper => citationCounts.set(paper.paperId, Number(paper.citationCount) || 0));
+    Object.values(citations).forEach(items => {
+      if (!Array.isArray(items)) return;
+      items.forEach(item => {
+        const paper = item?.citingPaper;
+        if (paper?.paperId) citationCounts.set(paper.paperId, Number(paper.citationCount) || 0);
+      });
+    });
+    const maxCitationCount = Math.max(0, ...citationCounts.values());
+    const getNodeStyle = (paperId, label) => {
+      const count = citationCounts.get(paperId) || 0;
+      const ratio = maxCitationCount > 0 ? Math.log1p(count) / Math.log1p(maxCitationCount) : 0;
+      const red = Math.round(174 - ratio * 153);
+      const green = Math.round(211 - ratio * 102);
+      const blue = Math.round(255 - ratio * 13);
+      const background = `rgb(${red}, ${green}, ${blue})`;
+      return {
+        size: 12 + ratio * 23,
+        color: { background, border: '#3978c5', highlight: { background: '#ffca5c', border: '#9b6500' } },
+        title: `${label}\nCitations: ${count.toLocaleString()}`,
+      };
+    };
   
     // Helper function to add a node if it hasn't been added yet
-    const addNode = (paperId, label, citationCount = 0) => {
-      // Scale node size based on citation count (min: 10, max: 50)
-      const size = Math.min(50, Math.max(10, 10 + citationCount * 2));
+    const addNode = (paperId, label) => {
       if (!addedNodes.has(paperId)) {
-        nodes.add({ id: paperId, label: label, size: size });
+        nodes.add({ id: paperId, label, ...getNodeStyle(paperId, label) });
         addedNodes.add(paperId);
       }
     };
@@ -162,8 +186,7 @@ function GraphViewCitation() {
       // Handle Citations (flat structure)
       Object.keys(citations).forEach((paperId) => {
         const label = formatLabel(paperId);
-        const citationCount = citations[paperId]?.length || 0;
-        addNode(paperId, label, citationCount);
+        addNode(paperId, label);
         addEdges(paperId);
       });
     } else {
@@ -175,8 +198,7 @@ function GraphViewCitation() {
         if (Array.isArray(papers)) {
           papers.forEach((paperId) => {
             const label = formatLabel(paperId);
-            const citationCount = citations[paperId]?.length || 0;
-            addNode(paperId, label, citationCount);
+            addNode(paperId, label);
             addEdges(paperId);
           });
         }
@@ -190,15 +212,25 @@ function GraphViewCitation() {
         shape: 'dot',
         font: { size: 12 },
       },
-      edges: { arrows: { to: true } },
-      physics: { barnesHut: { gravitationalConstant: -20000, springLength: 150 } },
+      edges: { arrows: { to: true }, color: { color: '#678bb8', highlight: '#d18a00' } },
+      physics: { barnesHut: { gravitationalConstant: -2500, springLength: 130 }, stabilization: { iterations: 150 } },
+      interaction: { hover: true, tooltipDelay: 150 },
     };
   
+    networkRef.current?.destroy();
     const network = new Network(visJsRef.current, data, options);
+    networkRef.current = network;
+    network.once('stabilizationIterationsDone', () => network.fit({ animation: { duration: 350, easingFunction: 'easeInOutQuad' } }));
     // Add event listener for node click to show modal
     network.on('click', (params) => {
       if (params.nodes.length > 0) {
         const paperId = params.nodes[0];
+        if (graphPapers.some(paper => paper.paperId === paperId)) {
+          setHighlightedPaperId(paperId);
+          const selectedMap = viewType === 'SUPPORTING' ? supporting : opposing;
+          const visibleIds = viewType === 'ALL' ? new Set(graphPapers.map(paper => paper.paperId)) : new Set(Object.values(selectedMap).flat());
+          if (!visibleIds.has(paperId)) setViewType('ALL');
+        }
   
         // Check if the clicked node has incoming edges
         if (nodesWithIncomingEdges.has(paperId)) {
@@ -221,8 +253,8 @@ function GraphViewCitation() {
     // find the paper by ID and return first author + year as the label
     const paper = graphPapers.find(p => p.paperId === paperId);
     if (paper) {
-      const firstAuthor = paper.authors[0]?.name || 'Unknown';
-      const year = new Date(paper.publicationDate).getFullYear();
+      const firstAuthor = paper.authors?.[0]?.name || 'Unknown';
+      const year = paper.publicationDate ? new Date(paper.publicationDate).getFullYear() : 'Year unknown';
       return `${firstAuthor} (${year})`;
     }
     return paperId;
@@ -231,7 +263,22 @@ function GraphViewCitation() {
   // Render graph when graphPapers or viewType changes
   useEffect(() => {
     drawGraph();
-  }, [graphPapers, viewType]);
+  }, [graphPapers, viewType, citations, supporting, opposing]);
+
+  useEffect(() => {
+    if (!highlightedPaperId) return undefined;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`paper-${highlightedPaperId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    const clearHighlight = window.setTimeout(() => setHighlightedPaperId(null), 2400);
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(clearHighlight); };
+  }, [highlightedPaperId, viewType]);
+
+  useEffect(() => () => networkRef.current?.destroy(), []);
+
+  const visiblePapers = viewType === 'ALL'
+    ? graphPapers
+    : graphPapers.filter(paper => Object.values(viewType === 'SUPPORTING' ? supporting : opposing).some(ids => Array.isArray(ids) && ids.includes(paper.paperId)));
 
   if (isLoading) {
     return (
@@ -258,6 +305,7 @@ function GraphViewCitation() {
         viewtype={graphViewType}
         prompt={searchPrompt}
         citations={citations}
+        selectedFilter={viewType}
         supporting={supporting}
         opposing={opposing}
       />
@@ -284,14 +332,17 @@ function GraphViewCitation() {
 
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
-            {Object.keys(graphPapers).length > 0 ? (
-              <PaperListOpinion papers={graphPapers} onGenerateSummaryClick={setSelectedPaper} />
+            {visiblePapers.length > 0 ? (
+              <PaperListOpinion papers={visiblePapers} onGenerateSummaryClick={setSelectedPaper} highlightedPaperId={highlightedPaperId} />
             ) : (
-              <Typography>No papers found.</Typography>
+              <Typography>No papers match this graph filter.</Typography>
             )}
           </Grid>
           <Grid item xs={12} md={6}>
-            <div ref={visJsRef} style={{ height: '600px', border: '1px solid lightgray' }}></div>
+            <div ref={visJsRef} style={{ width: '100%', minWidth: 0, height: '600px', border: '1px solid lightgray', overflow: 'hidden' }}></div>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Larger, darker nodes represent papers with more citations. Arrows point from citing papers to the papers they cite.
+            </Typography>
           </Grid>
         </Grid>
       </Container>
@@ -306,7 +357,7 @@ function GraphViewCitation() {
           {selectedPaperDetails && (
             <>
               <Typography variant="h6" sx={{ fontWeight: 'bold', color:'black'}}>
-                {selectedPaperDetails.authors[0]?.name || 'Unknown'} {new Date(selectedPaperDetails.publicationDate).getFullYear()}
+                {selectedPaperDetails.authors?.[0]?.name || 'Unknown'} {selectedPaperDetails.publicationDate ? new Date(selectedPaperDetails.publicationDate).getFullYear() : 'Year unknown'}
               </Typography>
               <Typography variant="body1" sx={{ marginTop: 1 , fontWeight: 'light'}}>
                 {selectedPaperDetails.title || 'No title available'}

@@ -4,7 +4,7 @@ import PaperDetailOpinion from './PaperDetailOpinion';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { api } from '../api';
 
-function PaperListOpinion({ papers, onGenerateSummaryClick }) {
+function PaperListOpinion({ papers, onGenerateSummaryClick, highlightedPaperId }) {
   const [summaryOpen, setSummaryOpen] = React.useState({});
   const [summaries, setSummaries] = React.useState({});
   const [summaryErrors, setSummaryErrors] = React.useState({});
@@ -55,8 +55,8 @@ function PaperListOpinion({ papers, onGenerateSummaryClick }) {
     <List component="nav" sx={{ width: '100%' }}>
       {papers.map((paper,index) => (
         <React.Fragment key={paper.paperId}>
-          <ListItem alignItems="flex-start" sx={{ flexDirection: "column", alignItems: "flex-start", width: '100%', cursor:'pointer','&:hover': {
-                backgroundColor: '#f4f4f4' 
+          <ListItem id={`paper-${paper.paperId}`} alignItems="flex-start" sx={{ flexDirection: "column", alignItems: "flex-start", width: '100%', cursor:'pointer', scrollMarginTop: '100px', backgroundColor: highlightedPaperId === paper.paperId ? '#fff4cc' : 'transparent', transition: 'background-color 700ms ease', '&:hover': {
+                backgroundColor: highlightedPaperId === paper.paperId ? '#ffecad' : '#f4f4f4'
               } }} onClick={() => onPaperSelect(paper.paperId)}>
           <Typography
               variant="h6"
