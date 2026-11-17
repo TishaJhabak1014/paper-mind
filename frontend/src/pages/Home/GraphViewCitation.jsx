@@ -362,6 +362,7 @@ function GraphViewCitation() {
       <Modal
         open={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        disableRestoreFocus
         closeAfterTransition
         aria-labelledby="paper-details-modal"
       >
