@@ -240,7 +240,7 @@ function GraphViewCitation() {
           setSelectedPaperDetails(paperDetails);
           setCitingPapers(citingPapersList);
           // Let the list scroll/highlight become visible before the details panel fades in.
-          window.setTimeout(() => setIsModalOpen(true), 260);
+          window.setTimeout(() => setIsModalOpen(true), 750);
         }
   
         // Check if the clicked node has incoming edges
@@ -365,7 +365,7 @@ function GraphViewCitation() {
         closeAfterTransition
         aria-labelledby="paper-details-modal"
       >
-        <Fade in={isModalOpen} timeout={260}>
+        <Fade in={isModalOpen} timeout={400}>
           <Box sx={modalStyle}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
               <Box>
