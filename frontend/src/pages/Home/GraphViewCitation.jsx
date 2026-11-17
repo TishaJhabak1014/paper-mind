@@ -225,7 +225,8 @@ function GraphViewCitation() {
     network.on('click', (params) => {
       if (params.nodes.length > 0) {
         const paperId = params.nodes[0];
-        if (graphPapers.some(paper => paper.paperId === paperId)) {
+        const isInSearchResults = graphPapers.some(paper => paper.paperId === paperId);
+        if (isInSearchResults) {
           setHighlightedPaperId(paperId);
           const selectedMap = viewType === 'SUPPORTING' ? supporting : opposing;
           const visibleIds = viewType === 'ALL' ? new Set(graphPapers.map(paper => paper.paperId)) : new Set(Object.values(selectedMap).flat());
@@ -233,7 +234,7 @@ function GraphViewCitation() {
         }
   
         // Check if the clicked node has incoming edges
-        if (nodesWithIncomingEdges.has(paperId)) {
+        if (nodesWithIncomingEdges.has(paperId) && !isInSearchResults) {
           const paperDetails = graphPapers.find(p => p.paperId === paperId);
           const citingPapersList = citations[paperId]?.map(citingPaperObj => {
             const citingDetails = formatCitationDetails(citingPaperObj);
