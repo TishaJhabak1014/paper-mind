@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CircularProgress, Container, Grid, Typography, MenuItem, Select, FormControl, Box, Modal, Link } from '@mui/material';
+import { CircularProgress, Container, Grid, Typography, MenuItem, Select, FormControl, Box, Modal, Link, IconButton, Fade, Divider } from '@mui/material';
 import PaperListOpinion from '../../components/PaperListOpinion';
 import TopNavigation from '../../components/TopNavigation';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DataSet } from 'vis-data';
 import { Network } from 'vis-network/standalone';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import CloseIcon from '@mui/icons-material/Close';
 
 
 function GraphViewCitation() {
@@ -74,7 +75,7 @@ function GraphViewCitation() {
     top: '50%',
     left: '50%',
     transform: 'translate(-50%, -50%)',
-    width: '60%',
+    width: { xs: '92%', sm: '80%', md: '60%' },
     bgcolor: 'background.paper',
     boxShadow: 24,
     borderRadius: '1.5rem',
@@ -139,10 +140,12 @@ function GraphViewCitation() {
       const firstAuthor = citingAuthors.length > 0 ? citingAuthors[0].name : 'Unknown';
       const publicationDate = citingPaperObj.citingPaper.publicationDate;
       const year = publicationDate ? new Date(publicationDate).getFullYear() : 'Unknown';
-      const pdfLink = citingPaperObj.citingPaper.openAccessPdf?.url || null;
+      const pdfLink = citingPaperObj.citingPaper.openAccessPdf?.url || citingPaperObj.citingPaper.url || null;
+      const title = citingPaperObj.citingPaper.title || `${firstAuthor} (${year})`;
   
       return {
         label: `${firstAuthor} ${year}`,
+        title,
         pdfLink: pdfLink,
       };
     };
@@ -232,6 +235,12 @@ function GraphViewCitation() {
           const selectedMap = viewType === 'SUPPORTING' ? supporting : opposing;
           const visibleIds = viewType === 'ALL' ? new Set(graphPapers.map(paper => paper.paperId)) : new Set(Object.values(selectedMap).flat());
           if (!visibleIds.has(paperId)) setViewType('ALL');
+          const paperDetails = graphPapers.find(paper => paper.paperId === paperId);
+          const citingPapersList = (Array.isArray(citations[paperId]) ? citations[paperId] : []).map(formatCitationDetails);
+          setSelectedPaperDetails(paperDetails);
+          setCitingPapers(citingPapersList);
+          // Let the list scroll/highlight become visible before the details panel fades in.
+          window.setTimeout(() => setIsModalOpen(true), 260);
         }
   
         // Check if the clicked node has incoming edges
@@ -353,44 +362,55 @@ function GraphViewCitation() {
       <Modal
         open={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        closeAfterTransition
         aria-labelledby="paper-details-modal"
       >
-        <Box sx={modalStyle}>
-          {selectedPaperDetails && (
-            <>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', color:'black'}}>
-                {selectedPaperDetails.authors?.[0]?.name || 'Unknown'} {selectedPaperDetails.publicationDate ? new Date(selectedPaperDetails.publicationDate).getFullYear() : 'Year unknown'}
-              </Typography>
-              <Typography variant="body1" sx={{ marginTop: 1 , fontWeight: 'light'}}>
-                {selectedPaperDetails.title || 'No title available'}
-              </Typography>
-              {selectedPaperDetails.openAccessPdf?.url && (
-              <Link href={selectedPaperDetails.openAccessPdf.url} target="_blank" rel="noopener noreferrer">
-              <PictureAsPdfIcon style={{ fontSize: '1.5rem', color: 'red' }} />
+        <Fade in={isModalOpen} timeout={260}>
+          <Box sx={modalStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+              <Box>
+                <Typography id="paper-details-modal" variant="h6" sx={{ fontWeight: 'bold', color: 'black' }}>
+                  {selectedPaperDetails?.authors?.[0]?.name || 'Unknown'} {selectedPaperDetails?.publicationDate ? new Date(selectedPaperDetails.publicationDate).getFullYear() : 'Year unknown'}
+                </Typography>
+                <Typography variant="body1" sx={{ mt: 0.5, fontWeight: 'medium' }}>
+                  {selectedPaperDetails?.title || 'Paper details'}
+                </Typography>
+                {selectedPaperDetails && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {Number(selectedPaperDetails.citationCount || 0).toLocaleString()} citations
+                </Typography>}
+              </Box>
+              <IconButton onClick={() => setIsModalOpen(false)} aria-label="Close citation details" autoFocus>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            {selectedPaperDetails?.openAccessPdf?.url && (
+              <Link href={selectedPaperDetails.openAccessPdf.url} target="_blank" rel="noopener noreferrer" aria-label="Open selected paper PDF">
+                <PictureAsPdfIcon sx={{ mt: 0.5, color: 'error.main' }} />
               </Link>
-              )}
-
-            </>
-          )}
-          <Typography variant="subtitle1" component="h2" sx={{ marginTop: 2, fontWeight: 'light' }}>
-          Cited By:
-          </Typography>
-          <ul style={{ padding: 0, margin: '10px 0', listStyleType: 'none' }}>
-          {citingPapers.map((citingPaper, index) => (
-          <li key={index} style={{ marginBottom: '8px'}}>
-            <span style={{ fontStyle: 'italic', fontWeight: 'light', color: 'darkblue' }}>{citingPaper.label}</span>
-            {citingPaper.pdfLink && (
-              <>
-              &nbsp;
-              <Link href={citingPaper.pdfLink} target="_blank" rel="noopener noreferrer">
-                <PictureAsPdfIcon style={{ fontSize: '1rem', verticalAlign: 'middle', color: 'red' }} />
-              </Link>
-            </>
-          )}
-          </li>
-        ))}
-        </ul>
-        </Box>
+            )}
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle1" component="h2" sx={{ fontWeight: 'medium' }}>Papers citing this result</Typography>
+            {citingPapers.length ? (
+              <Box component="ul" sx={{ p: 0, mt: 1, listStyle: 'none', maxHeight: '35vh', overflowY: 'auto' }}>
+                {citingPapers.map((citingPaper, index) => (
+                  <Fade key={`${citingPaper.title}-${index}`} in={isModalOpen} timeout={220 + index * 35}>
+                    <Box component="li" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight="medium">{citingPaper.title}</Typography>
+                        <Typography variant="caption" color="text.secondary">{citingPaper.label}</Typography>
+                      </Box>
+                      {citingPaper.pdfLink ? (
+                        <Link href={citingPaper.pdfLink} target="_blank" rel="noopener noreferrer" aria-label={`Open PDF for ${citingPaper.title}`}>
+                          <PictureAsPdfIcon sx={{ color: 'error.main' }} />
+                        </Link>
+                      ) : <Typography variant="caption" color="text.disabled">PDF unavailable</Typography>}
+                    </Box>
+                  </Fade>
+                ))}
+              </Box>
+            ) : <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No sampled citing papers were returned for this result.</Typography>}
+          </Box>
+        </Fade>
       </Modal>
     </div>
   );
