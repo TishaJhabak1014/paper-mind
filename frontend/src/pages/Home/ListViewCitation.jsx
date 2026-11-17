@@ -121,8 +121,7 @@ function ListViewCitation() {
               <Typography variant="h6" sx={{ color: 'black', fontWeight: 'light' }}>Apply Filters</Typography>
               <br></br>
               <TextField fullWidth label="Search papers" placeholder="Title, author, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} sx={{ mb: 2 }} />
-              <Typography sx={{ color: 'black', fontWeight: 'light' }}>Sort by year</Typography>
-              <TextField fullWidth select label="Publication year" value={sortOrder} onChange={e => setSortOrder(e.target.value)} sx={{ mb: 2 }}>
+              <TextField fullWidth select label="Sort by year" value={sortOrder} onChange={e => setSortOrder(e.target.value)} sx={{ mb: 2 }}>
                 <MenuItem value="newest">Newest first</MenuItem>
                 <MenuItem value="oldest">Oldest first</MenuItem>
               </TextField>
