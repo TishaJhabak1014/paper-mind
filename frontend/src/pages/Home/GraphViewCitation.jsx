@@ -183,8 +183,9 @@ function GraphViewCitation() {
   
     // Process data based on viewType
     if (viewType === 'ALL') {
-      // Handle Citations (flat structure)
-      Object.keys(citations).forEach((paperId) => {
+      // Show every search result, even when citation details were not fetched for it.
+      graphPapers.forEach((paper) => {
+        const paperId = paper.paperId;
         const label = formatLabel(paperId);
         addNode(paperId, label);
         addEdges(paperId);
@@ -342,7 +343,7 @@ function GraphViewCitation() {
           <Grid item xs={12} md={6}>
             <div ref={visJsRef} style={{ width: '100%', minWidth: 0, height: '600px', border: '1px solid lightgray', overflow: 'hidden' }}></div>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              Larger, darker nodes represent papers with more citations. Arrows point from citing papers to the papers they cite.
+              All search results are shown. Citation links are sampled for the top five results, with up to five citing papers each. Larger, darker nodes have more citations; arrows point from citing papers to the papers they cite.
             </Typography>
           </Grid>
         </Grid>
