@@ -7,7 +7,8 @@ import FeatureCarousel from '../../components/FeatureCarousel';
 import HomeImage from '../../resources/HomeImage.jpeg';
 import YellowHome from '../../resources/YellowHome.jpg';
 import HImage from '../../resources/HImage.jpeg';
-import { Card, CardContent, Typography, Box } from '@mui/material';
+import { Card, CardContent, Typography, Box, Link } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 
 function Home() {
 
@@ -55,6 +56,12 @@ function Home() {
                     </div>
             </SearchProvider>
         </div>   
+        <Box component="footer" sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
+            <Typography variant="body2">
+                <Link component={RouterLink} to="/privacy" sx={{ mr: 2 }}>Privacy Policy</Link>
+                <Link component={RouterLink} to="/terms">Terms of Service</Link>
+            </Typography>
+        </Box>
         </div>
         
     );

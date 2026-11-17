@@ -7,6 +7,7 @@ import GraphViewCitation from './pages/Home/GraphViewCitation';
 import GraphViewOpinion from './pages/Home/GraphViewOpinion';
 import LoadingPage from './pages/LoadingPage';
 import ErrorPage from './pages/ErrorPage';
+import LegalPage from './pages/LegalPage';
 
 function App() {
   return (
@@ -19,6 +20,8 @@ function App() {
         <Route path="/papers-opinion-graphview" element={<GraphViewOpinion />} />
         <Route path="/loading" element={<LoadingPage />} />
         <Route path="/error" element={<ErrorPage />} />
+        <Route path="/privacy" element={<LegalPage type="privacy" />} />
+        <Route path="/terms" element={<LegalPage type="terms" />} />
       </Routes>
     </Router>
   );
