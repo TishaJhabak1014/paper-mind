@@ -38,6 +38,10 @@ public class ResearchPaperService {
                 .orElse(null);
     }
 
+    public boolean existsBySemanticPaperId(String semanticPaperId) {
+        return researchPaperRepo.existsBySemanticPaperId(semanticPaperId);
+    }
+
     public ResearchPaper saveResearchPaper(ResearchPaper researchPaper) {
         return researchPaperRepo.save(researchPaper);
     }

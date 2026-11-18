@@ -4,6 +4,9 @@ import TopNavigation from '../../components/TopNavigation';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PaperDetailOpinion from '../../components/PaperDetailOpinion';
+import PaperListOpinion from '../../components/PaperListOpinion';
+import GraphProgressNotice from '../../components/GraphProgressNotice';
+import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
 import { api } from '../../api';
 
 function ListViewOpinion() {
@@ -11,13 +14,12 @@ function ListViewOpinion() {
     const [selectedPaper, setSelectedPaper] = useState(null);
     const location = useLocation();
     const [graphPapers, setGraphPapers] = useState([]);
-    const [supportPapers, setSupportPapers] = useState({});
     const [supportingPapersList, setSupportingPapersList] = useState([]);
-    const [opposingPapers, setOpposingPapers] = useState({});  // Fix: added state for opposing papers
     const [opposingPapersList, setOpposingPapersList] = useState([]);  // Fix: added state for opposing papers list
     const [isLoading, setIsLoading] = useState(true);
     const [summaryOpen, setSummaryOpen] = useState({});
     const [summaries, setSummaries] = useState({});  // Store the generated summaries
+    const [summaryLabels, setSummaryLabels] = useState({});
     const [summaryErrors, setSummaryErrors] = useState({});
     const [loading, setLoading] = useState({});  // Track loading state per paper
     const [searchPrompt, setSearchPrompt] = useState('');
@@ -27,6 +29,18 @@ function ListViewOpinion() {
     const [selectedType, setSelectedType] = useState('');
     const [sortOrder, setSortOrder] = useState('newest');
     const navigate = useNavigate();
+    const papersForEnrichment = Array.isArray(location.state?.papers)
+        ? location.state.papers
+        : location.state?.graphPapers || location.state?.papers?.Papers || [];
+    const { supporting: supportPapers, opposing: opposingPapers, status: opinionStatus } = useOpinionEnrichment(
+        location.state?.graphId,
+        location.state?.prompt || searchPrompt,
+        papersForEnrichment,
+        location.state?.supporting || {},
+        location.state?.opposing || {},
+    );
+    const [supportingVisibleCount, setSupportingVisibleCount] = useState(5);
+    const [opposingVisibleCount, setOpposingVisibleCount] = useState(5);
 
     // Define a consistent style for paper cards
     const paperCardStyle = {  // Fix: Define paperCardStyle properly
@@ -54,12 +68,6 @@ function ListViewOpinion() {
     useEffect(() => {
         if (location.state?.papers) {
             setGraphPapers(location.state.papers);
-        }
-        if (location.state?.supporting) {
-            setSupportPapers(location.state.supporting);
-        }
-        if (location.state?.opposing) {
-            setOpposingPapers(location.state.opposing);  // Fix: Use setOpposingPapers to update opposing papers
         }
         if (location.state?.prompt) {
             setSearchPrompt(location.state.prompt);
@@ -112,6 +120,8 @@ function ListViewOpinion() {
     });
     const visibleSupportingPapers = filterAndSortEntries(supportingPapersList);
     const visibleOpposingPapers = filterAndSortEntries(opposingPapersList);
+    const shownSupportingPapers = visibleSupportingPapers.slice(0, supportingVisibleCount);
+    const shownOpposingPapers = visibleOpposingPapers.slice(0, opposingVisibleCount);
 
     const renderOpinionChip = (text, color) => (
         <Tooltip title={text.replace(/_/g, ' ')} placement="top" arrow>
@@ -125,7 +135,7 @@ function ListViewOpinion() {
         setLoading(prev => ({ ...prev, [id]: true }));
         setSummaryErrors(prev => ({ ...prev, [id]: null }));
         try {
-            const response = await api.post('/api/generate-summary', { abstract });
+            const response = await api.post('/api/generate-summary', { paperId: id, abstract });
             setSummaries(prev => ({ ...prev, [id]: response.data }));
         } catch (error) {
             console.error('Error fetching AI summary:', error);
@@ -138,10 +148,16 @@ function ListViewOpinion() {
         }
     };
 
-    const handleSummaryToggle = (id, abstract) => {
+    const handleSummaryToggle = (id, abstract, tldr) => {
       const opening = !summaryOpen[id];
       setSummaryOpen(prev => ({ ...prev, [id]: opening }));
-      if (opening && !summaries[id] && !loading[id]) generateAISummary(id, abstract);
+      if (opening && !abstract?.trim() && tldr?.trim() && !summaries[id]) {
+        setSummaries(prev => ({ ...prev, [id]: tldr.trim() }));
+        setSummaryLabels(prev => ({ ...prev, [id]: 'Semantic Scholar TLDR' }));
+      } else if (opening && abstract?.trim() && !summaries[id] && !loading[id]) {
+        setSummaryLabels(prev => ({ ...prev, [id]: 'AI Summary of Abstract' }));
+        generateAISummary(id, abstract);
+      }
     };
 
     if (isLoading) {
@@ -165,10 +181,16 @@ function ListViewOpinion() {
         <div>
             <TopNavigation 
             currentView={currentView}
+            papers={graphPapers}
+            viewtype="OPINION"
+            supporting={supportPapers}
+            opposing={opposingPapers}
+            prompt={searchPrompt}
+            graphId={location.state?.graphId}
             onViewChange={(view) => {
                 setCurrentView(view);
                 if (view === 'Graph View'){
-                    navigate('/papers-opinion-graphview', { state: { ...location.state, currentView: 'Graph View' } });
+                    navigate('/papers-opinion-graphview', { state: { ...location.state, papers: graphPapers, supporting: supportPapers, opposing: opposingPapers, graphId: location.state?.graphId, currentView: 'Graph View' } });
                 }
             }}/>
             <Container maxWidth="xl">
@@ -177,6 +199,9 @@ function ListViewOpinion() {
                     Results for {formattedPrompt}
                 </Typography>
                 <br />
+                {opinionStatus === 'loading' && <GraphProgressNotice message="Papers are ready. Grouping them by supporting and opposing findings…" />}
+                {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion grouping could not be completed. The retrieved papers are still available." error />}
+                {opinionStatus === 'loading' && <PaperListOpinion papers={graphPapers} onGenerateSummaryClick={() => {}} />}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
                     <TextField label="Search papers" placeholder="Title, author, opinion, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} size="small" sx={{ minWidth: 260, flex: 1 }} />
                     <TextField select label="Year" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} size="small" sx={{ minWidth: 130 }}>
@@ -193,7 +218,7 @@ function ListViewOpinion() {
                     <Grid item xs={12} md={6}>
                         <Typography variant="h6" fontWeight="light" fontSize="16px">Supporting Papers</Typography>
                         {visibleSupportingPapers.length > 0 ? (
-                            visibleSupportingPapers.map((entry, index) => (
+                            shownSupportingPapers.map((entry, index) => (
                                 <Paper key={index} sx={paperCardStyle}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         {renderOpinionChip(entry.opinion, getChipColor('Supporting'))}
@@ -214,18 +239,18 @@ function ListViewOpinion() {
                                             </IconButton>
                                         </Link>
                                     )}
-                                    {entry.paper.abstract?.trim() ? (
+                                    {entry.paper.abstract?.trim() || entry.paper.tldr?.text?.trim() ? (
                                         <Typography
                                             variant="body2"
                                             color="primary"
                                             style={{ cursor: 'pointer', marginTop: 8 }}
-                                            onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract)}
+                                            onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract, entry.paper.tldr?.text)}
                                         >
-                                            {summaryOpen[entry.paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
+                                            {summaryOpen[entry.paper.paperId] ? "Hide details" : entry.paper.abstract?.trim() ? "Show AI Summary" : "View Semantic Scholar TLDR"}
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                                            Abstract not available from Semantic Scholar.
+                                            Abstract not available from Semantic Scholar or the available fallback sources.
                                         </Typography>
                                     )}
                                     <Collapse in={summaryOpen[entry.paper.paperId]} timeout="auto" unmountOnExit>
@@ -240,20 +265,21 @@ function ListViewOpinion() {
                                                     </Button>
                                                 </Box>
                                             ) : summaries[entry.paper.paperId] ? (
-                                                <PaperDetailOpinion paper={{ ...entry.paper, summary: summaries[entry.paper.paperId] }} />
+                                                <PaperDetailOpinion paper={{ ...entry.paper, summary: summaries[entry.paper.paperId], summaryLabel: summaryLabels[entry.paper.paperId] }} />
                                             ) : null}
                                         </Box>
                                     </Collapse>
                                 </Paper>
                             ))
                         ) : (
-                            <Typography sx={{marginTop:'3%'}}>No supporting papers found.</Typography>
+                            <Typography sx={{marginTop:'3%'}}>{opinionStatus === 'loading' ? 'Supporting papers will appear when grouping finishes.' : 'No supporting papers found.'}</Typography>
                         )}
+                        {shownSupportingPapers.length < visibleSupportingPapers.length && <Button size="small" onClick={() => setSupportingVisibleCount(count => count + 5)}>Show next 5 supporting papers</Button>}
                     </Grid>
                     <Grid item xs={12} md={6}>
                         <Typography variant="h6" fontWeight="light" fontSize="16px">Opposing Papers</Typography>
                         {visibleOpposingPapers.length > 0 ? (
-                            visibleOpposingPapers.map((entry, index) => (
+                            shownOpposingPapers.map((entry, index) => (
                                 <Paper key={index} sx={paperCardStyle}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         {renderOpinionChip(entry.opinion, getChipColor('Opposing'))}
@@ -274,18 +300,18 @@ function ListViewOpinion() {
                                             </IconButton>
                                         </Link>
                                     )}
-                                    {entry.paper.abstract?.trim() ? (
+                                    {entry.paper.abstract?.trim() || entry.paper.tldr?.text?.trim() ? (
                                         <Typography
                                             variant="body2"
                                             color="primary"
                                             style={{ cursor: 'pointer', marginTop: 8 }}
-                                            onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract)}
+                                            onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract, entry.paper.tldr?.text)}
                                         >
-                                            {summaryOpen[entry.paper.paperId] ? "Hide AI Summary" : "Show AI Summary"}
+                                            {summaryOpen[entry.paper.paperId] ? "Hide details" : entry.paper.abstract?.trim() ? "Show AI Summary" : "View Semantic Scholar TLDR"}
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                                            Abstract not available from Semantic Scholar.
+                                            Abstract not available from Semantic Scholar or the available fallback sources.
                                         </Typography>
                                     )}
                                     <Collapse in={summaryOpen[entry.paper.paperId]} timeout="auto" unmountOnExit>
@@ -300,16 +326,16 @@ function ListViewOpinion() {
                                                     </Button>
                                                 </Box>
                                             ) : summaries[entry.paper.paperId] ? (
-                                                <PaperDetailOpinion paper={{ ...entry.paper, summary: summaries[entry.paper.paperId] }} />
+                                                <PaperDetailOpinion paper={{ ...entry.paper, summary: summaries[entry.paper.paperId], summaryLabel: summaryLabels[entry.paper.paperId] }} />
                                             ) : null}
                                         </Box>
                                     </Collapse>
                                 </Paper>
                             ))
                         ) : (
-                            
-                            <Typography sx={{marginTop:'3%', color:'darkblue'}}>No opposing papers found.</Typography>
+                            <Typography sx={{marginTop:'3%', color:'darkblue'}}>{opinionStatus === 'loading' ? 'Opposing papers will appear when grouping finishes.' : 'No opposing papers found.'}</Typography>
                         )}
+                        {shownOpposingPapers.length < visibleOpposingPapers.length && <Button size="small" onClick={() => setOpposingVisibleCount(count => count + 5)}>Show next 5 opposing papers</Button>}
                     </Grid>
                 </Grid>
             </Container>

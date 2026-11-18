@@ -5,6 +5,8 @@ import PaperListOpinion from '../../components/PaperListOpinion';
 import TopNavigation from '../../components/TopNavigation';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Network } from 'vis-network/standalone/umd/vis-network.min.js';
+import GraphProgressNotice from '../../components/GraphProgressNotice';
+import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
 
 function GraphViewOpinion() {
   const [selectedPaper, setSelectedPaper] = useState(null);
@@ -13,8 +15,14 @@ function GraphViewOpinion() {
   const [currentView, setCurrentView] = useState('Graph View');
   const [isLoading, setIsLoading] = useState(true);  // Start as loading is true
   const [viewType, setViewType] = useState('');
-  const [supporting, setSupporting] = useState({});
-  const [opposing, setOpposing] = useState({});
+  const papersForEnrichment = location.state?.graphPapers || (Array.isArray(location.state?.papers) ? location.state.papers : location.state?.papers?.Papers) || [];
+  const { supporting, opposing, status: opinionStatus } = useOpinionEnrichment(
+    location.state?.graphId,
+    location.state?.prompt || '',
+    papersForEnrichment,
+    location.state?.supporting || {},
+    location.state?.opposing || {},
+  );
   const [viewMode, setViewMode] = useState('supporting');
   const networkRef = useRef(null);
   const [openModal, setOpenModal] = useState(false);
@@ -69,12 +77,6 @@ function GraphViewOpinion() {
       // Only set papers, supporting, opposing if present
       if (location.state?.graphPapers) {
         setGraphPapers(location.state.graphPapers);
-      }
-      if (location.state?.supporting) {
-        setSupporting(location.state.supporting);
-      }
-      if (location.state?.opposing) {
-        setOpposing(location.state.opposing);
       }
       setViewType(location.state?.graphViewType);
       if (location.state?.prompt) {
@@ -197,6 +199,7 @@ function GraphViewOpinion() {
   }, [isLoading, viewMode, supporting, opposing, graphPapers]);  // Depend on isLoading
 
   const getPapers = () => {
+    if (opinionStatus === 'loading' || opinionStatus === 'failed') return graphPapers;
     if (viewMode === 'supporting') {
       return graphPapers.filter((paper) => Object.values(supporting).flat().includes(paper.paperId));
     } else if (viewMode === 'opposing') {
@@ -225,14 +228,15 @@ function GraphViewOpinion() {
       onViewChange={(view) => {
         setCurrentView(view);
         if (view === 'List View'){
-            navigate('/opinion-list-view', { state: { ...location.state, currentView: 'List View' } });
+            navigate('/opinion-list-view', { state: { ...location.state, papers: graphPapers, supporting, opposing, graphId: location.state?.graphId, currentView: 'List View' } });
         }
       }}
       papers={graphPapers} 
       viewtype={viewType} 
       supporting={supporting} 
       opposing={opposing} 
-      prompt={searchPrompt} />
+      prompt={searchPrompt}
+      graphId={location.state?.graphId} />
 
       {/* Dropdown for selecting opinions */}
       <Box sx={{ position: 'absolute', top: '6rem', right: '2rem', display: 'flex', alignItems: 'center' }}>
@@ -273,6 +277,8 @@ function GraphViewOpinion() {
             <Typography variant="h6" fontWeight="light" fontSize="16px">
               {viewMode.charAt(0).toUpperCase() + viewMode.slice(1)} Opinions Graph
             </Typography>
+            {opinionStatus === 'loading' && <GraphProgressNotice message="Papers are ready. Grouping their findings into an opinion graph…" />}
+            {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion grouping could not be completed. The paper list is still available." error />}
             <div
               ref={networkRef}
               style={{

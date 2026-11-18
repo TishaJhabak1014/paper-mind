@@ -5,6 +5,8 @@ import com.project.main.entity.ResearchPaper;
 import com.project.main.repository.CitationEdgeRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -14,8 +16,24 @@ public class CitationEdgeService {
     @Autowired
     private CitationEdgeRepo citationEdgeRepo;
 
+    @Transactional
     public CitationEdge saveCitationEdge(CitationEdge citationEdge) {
-        return citationEdgeRepo.save(citationEdge);
+        Integer graphId = citationEdge.getGraph().getId();
+        Integer firstPaperId = citationEdge.getFirstResearchPaper().getPaperId();
+        Integer secondPaperId = citationEdge.getSecondResearchPaper().getPaperId();
+
+        if (citationEdgeRepo.existsForGraphAndPapers(graphId, firstPaperId, secondPaperId)) {
+            return citationEdgeRepo.findForGraphAndPapers(graphId, firstPaperId, secondPaperId).orElse(null);
+        }
+
+        try {
+            return citationEdgeRepo.save(citationEdge);
+        } catch (DataIntegrityViolationException exception) {
+            // Concurrent loads can both pass the existence check. Treat the unique-key
+            // winner as success, while allowing unrelated database errors to surface.
+            return citationEdgeRepo.findForGraphAndPapers(graphId, firstPaperId, secondPaperId)
+                    .orElseThrow(() -> exception);
+        }
     }
 
     public List<CitationEdge> getAllCitationEdges() {

@@ -7,6 +7,9 @@ import { DataSet } from 'vis-data';
 import { Network } from 'vis-network/standalone';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import CloseIcon from '@mui/icons-material/Close';
+import GraphProgressNotice from '../../components/GraphProgressNotice';
+import useCitationEnrichment from '../../hooks/useCitationEnrichment';
+import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
 
 
 function GraphViewCitation() {
@@ -16,6 +19,7 @@ function GraphViewCitation() {
   const [citingPapers, setCitingPapers] = useState([]); // State to store citing papers
   const location = useLocation();
   const navigate = useNavigate(); // Use navigate for switching views
+  const papersForEnrichment = location.state?.graphPapers || (Array.isArray(location.state?.papers) ? location.state.papers : location.state?.papers?.Papers) || [];
   const [graphPapers, setGraphPapers] = useState({});
   const [viewType, setViewType] = useState(location.state?.selectedFilter || 'ALL');
   const [searchPrompt, setSearchPrompt] = useState('');
@@ -24,9 +28,15 @@ function GraphViewCitation() {
   const visJsRef = useRef(null); 
   const networkRef = useRef(null);
   const [highlightedPaperId, setHighlightedPaperId] = useState(null);
-  const [citations, setCitations] = useState({});
-  const [supporting, setSupporting] = useState({});
-  const [opposing, setOpposing] = useState({});
+  const { citations, completed: citationProgress, total: citationTotal, loading: citationsLoading, failed: citationsFailed, loadingPaperIds, failedPaperIds, retryFailed: retryCitationLoads } =
+    useCitationEnrichment(location.state?.graphId, papersForEnrichment, location.state?.citations || {});
+  const { supporting, opposing, status: opinionStatus } = useOpinionEnrichment(
+    location.state?.graphId,
+    location.state?.prompt || '',
+    papersForEnrichment,
+    location.state?.supporting || {},
+    location.state?.opposing || {},
+  );
   const [isLoading, setIsLoading] = useState(true);
 
   // Capitalize words function
@@ -45,15 +55,6 @@ function GraphViewCitation() {
       }
       if (location.state?.graphPapers) {
         setGraphPapers(location.state.graphPapers);
-      }
-      if (location.state?.citations) {
-        setCitations(location.state.citations);
-      }
-      if (location.state?.supporting) {
-        setSupporting(location.state.supporting);
-      }
-      if (location.state?.opposing) {
-        setOpposing(location.state.opposing);
       }
       if (location.state?.prompt) {
         setSearchPrompt(location.state.prompt);
@@ -185,7 +186,7 @@ function GraphViewCitation() {
     };
   
     // Process data based on viewType
-    if (viewType === 'ALL') {
+    if (viewType === 'ALL' || opinionStatus === 'loading' || opinionStatus === 'failed') {
       // Show every search result, even when citation details were not fetched for it.
       graphPapers.forEach((paper) => {
         const paperId = paper.paperId;
@@ -274,20 +275,20 @@ function GraphViewCitation() {
   // Render graph when graphPapers or viewType changes
   useEffect(() => {
     drawGraph();
-  }, [graphPapers, viewType, citations, supporting, opposing]);
+  }, [graphPapers, viewType, citations, supporting, opposing, opinionStatus]);
 
   useEffect(() => {
     if (!highlightedPaperId) return undefined;
-    const frame = requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => {
       document.getElementById(`paper-${highlightedPaperId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+    }));
     const clearHighlight = window.setTimeout(() => setHighlightedPaperId(null), 2400);
     return () => { cancelAnimationFrame(frame); window.clearTimeout(clearHighlight); };
   }, [highlightedPaperId, viewType]);
 
   useEffect(() => () => networkRef.current?.destroy(), []);
 
-  const visiblePapers = viewType === 'ALL'
+  const visiblePapers = viewType === 'ALL' || opinionStatus === 'loading' || opinionStatus === 'failed'
     ? graphPapers
     : graphPapers.filter(paper => Object.values(viewType === 'SUPPORTING' ? supporting : opposing).some(ids => Array.isArray(ids) && ids.includes(paper.paperId)));
 
@@ -309,13 +310,14 @@ function GraphViewCitation() {
         onViewChange={(view) => {
           setCurrentView(view);
           if (view === 'List View'){
-              navigate('/list-view', { state: { ...location.state, currentView: 'List View' } });
+              navigate('/list-view', { state: { ...location.state, papers: graphPapers, citations, graphId: location.state?.graphId, currentView: 'List View' } });
           }
         }}
         papers={graphPapers}
         viewtype={graphViewType}
         prompt={searchPrompt}
         citations={citations}
+        graphId={location.state?.graphId}
         selectedFilter={viewType}
         supporting={supporting}
         opposing={opposing}
@@ -325,6 +327,10 @@ function GraphViewCitation() {
         <Typography sx={{ color: 'darkblue', fontWeight: 'light', fontSize: '20px' }}>
           Showing results for {capitalizeWords(searchPrompt)}
         </Typography>
+        {citationsLoading && <GraphProgressNotice message={`Loading citation connections (${citationProgress} of ${citationTotal})…`} progress={{ completed: citationProgress, total: citationTotal }} />}
+        {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}
+        {opinionStatus === 'loading' && <GraphProgressNotice message="Grouping papers by supporting and opposing findings…" />}
+        {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion filters are unavailable. All papers and citation links remain available." error />}
 
         {/* Dropdown for switching between ALL, SUPPORTING, OPPOSING */}
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
@@ -344,7 +350,7 @@ function GraphViewCitation() {
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
             {visiblePapers.length > 0 ? (
-              <PaperListOpinion papers={visiblePapers} onGenerateSummaryClick={setSelectedPaper} highlightedPaperId={highlightedPaperId} />
+              <PaperListOpinion papers={visiblePapers} onGenerateSummaryClick={setSelectedPaper} highlightedPaperId={highlightedPaperId} loadingCitationIds={loadingPaperIds} failedCitationIds={failedPaperIds} />
             ) : (
               <Typography>No papers match this graph filter.</Typography>
             )}

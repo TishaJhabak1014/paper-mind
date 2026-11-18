@@ -5,9 +5,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -25,11 +30,20 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Comparator;
 
 @RestController
 @RequestMapping("/api/data")
 public class APIController {
+
+	@ExceptionHandler(ResponseStatusException.class)
+	public ResponseEntity<String> handleProviderException(ResponseStatusException exception) {
+		String message = exception.getReason() == null ? "The upstream provider is temporarily unavailable." : exception.getReason();
+		return ResponseEntity.status(exception.getStatusCode()).body(message);
+	}
 
 	@Autowired
 	GeminiService geminiService;
@@ -77,7 +91,8 @@ public class APIController {
 	}
 
 	@PostMapping
-	public ResponseEntity<String> mainAPIflow(@RequestBody UserPrompt userPrompt) {
+	public ResponseEntity<String> mainAPIflow(@RequestBody UserPrompt userPrompt,
+			@RequestParam(defaultValue = "false") boolean progressive) {
 
 		ObjectMapper objectMapper = new ObjectMapper();
 		
@@ -113,7 +128,16 @@ public class APIController {
 		/**
 		 * Note: Fetched Papers are limited by a certain number in descending order from most cited 
 		 */
+		boolean citationSearch = userPrompt.getGraphViewType() == GraphViewType.CITATION;
 		JsonNode fetchedPapers = semanticService.paperRelevanceSearch(semanticQuery).getBody();
+		if (citationSearch && fetchedPapers != null && fetchedPapers.isArray()) {
+			List<JsonNode> rankedPapers = new ArrayList<>();
+			fetchedPapers.forEach(rankedPapers::add);
+			rankedPapers.sort(Comparator.comparingInt((JsonNode paper) -> paper.path("citationCount").asInt(0)).reversed());
+			var sortedPapers = objectMapper.createArrayNode();
+			rankedPapers.forEach(sortedPapers::add);
+			fetchedPapers = sortedPapers;
+		}
 
 		if (fetchedPapers == null)
 			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("No semantic response (1) received.");
@@ -122,25 +146,8 @@ public class APIController {
 		for (JsonNode paperNode : fetchedPapers) {
 			String title = paperNode.get("title").asText();		
 			String paperId = paperNode.get("paperId").asText();			
-			// Older or citation-created rows may be partial. Merge newly available search metadata.
-			ResearchPaper existingPaper = researchPaperService.getReferenceBySemanticPaperId(paperId);
-			if (existingPaper != null) {
-				if (title != null && !title.isBlank()) existingPaper.setTitle(title);
-				String abstractText = paperNode.path("abstract").asText("").trim();
-				if ((existingPaper.getAbstractText() == null || existingPaper.getAbstractText().isBlank()) && !abstractText.isBlank()) {
-					existingPaper.setAbstractText(abstractText);
-				}
-				if (existingPaper.getPublishedDate() == null) {
-					String publicationDate = paperNode.path("publicationDate").asText("");
-					if (!publicationDate.isBlank()) {
-						existingPaper.setPublishedDate(LocalDate.parse(publicationDate, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay());
-					}
-				}
-				String sourceLink = paperNode.path("openAccessPdf").path("url").asText("");
-				if (sourceLink.isBlank()) sourceLink = paperNode.path("url").asText("");
-				if (!sourceLink.isBlank()) existingPaper.setSourceLink(sourceLink);
-				if (paperNode.hasNonNull("citationCount")) existingPaper.setCitationsCount(paperNode.path("citationCount").asInt());
-				researchPaperService.updateResearchPaper(existingPaper.getPaperId(), existingPaper);
+			// The fetched response below carries current metadata; avoid initializing an existing row's large-object abstract.
+			if (researchPaperService.existsBySemanticPaperId(paperId)) {
 				continue;
 			}
 
@@ -220,6 +227,21 @@ public class APIController {
 			graph.setGraphType(GraphType.OPINION);
 		}
 		graphService.saveGraph(graph);
+
+		if (progressive) {
+			ObjectNode initialResponse = objectMapper.createObjectNode();
+			initialResponse.set("Papers", fetchedPapers);
+			initialResponse.set("Citations", objectMapper.createObjectNode());
+			initialResponse.set("supporting", objectMapper.createObjectNode());
+			initialResponse.set("opposing", objectMapper.createObjectNode());
+			initialResponse.put("graphId", graph.getId());
+			initialResponse.put("graphType", userPrompt.getGraphViewType().name());
+			try {
+				return ResponseEntity.ok(objectMapper.writeValueAsString(initialResponse));
+			} catch (JacksonException exception) {
+				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Could not format initial paper results.");
+			}
+		}
 
 		// ------------ Citation-based ------------------
 		// Fetch citation edges only for citation graphs, and only for a small top-paper sample.
@@ -376,6 +398,114 @@ public class APIController {
 		} 
 		else {
 			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+		}
+	}
+
+	@GetMapping("/citations/{graphId}/{paperId}")
+	public ResponseEntity<JsonNode> loadCitationsForPaper(@PathVariable Integer graphId, @PathVariable String paperId) {
+		Graph graph = graphService.getGraphById(graphId);
+		if (graph == null || graph.getGraphType() != GraphType.CITATION) {
+			return ResponseEntity.notFound().build();
+		}
+
+		ResearchPaper citedPaper = researchPaperService.getReferenceBySemanticPaperId(paperId);
+		if (citedPaper == null) return ResponseEntity.notFound().build();
+
+		JsonNode citations = semanticService.citationSearch(paperId).getBody();
+		if (citations == null || !citations.isArray()) citations = new ObjectMapper().createArrayNode();
+		for (JsonNode citationNode : citations) {
+			JsonNode citingPaper = citationNode.path("citingPaper");
+			String citingPaperId = citingPaper.path("paperId").asText("");
+			if (citingPaperId.isBlank()) continue;
+
+			ResearchPaper citingResearchPaper = researchPaperService.getReferenceBySemanticPaperId(citingPaperId);
+			if (citingResearchPaper == null) {
+				citingResearchPaper = new ResearchPaper();
+				citingResearchPaper.setSemanticPaperId(citingPaperId);
+				citingResearchPaper.setTitle(citingPaper.path("title").asText(null));
+				citingResearchPaper.setAbstractText(citingPaper.path("abstract").asText(""));
+				citingResearchPaper.setCitationsCount(citingPaper.path("citationCount").asInt(0));
+				String sourceLink = citingPaper.path("openAccessPdf").path("url").asText("");
+				if (sourceLink.isBlank()) sourceLink = citingPaper.path("url").asText("");
+				citingResearchPaper.setSourceLink(sourceLink);
+				citingResearchPaper = researchPaperService.saveResearchPaper(citingResearchPaper);
+			}
+
+			citationEdgeService.saveCitationEdge(new CitationEdge(graph, citedPaper, citingResearchPaper));
+		}
+		return ResponseEntity.ok(citations);
+	}
+
+	@PostMapping("/opinions")
+	public ResponseEntity<ObjectNode> loadOpinionGraph(@RequestBody JsonNode requestBody) {
+		int graphId = requestBody.path("graphId").asInt(-1);
+		Graph graph = graphService.getGraphById(graphId);
+		if (graph == null || (graph.getGraphType() != GraphType.OPINION && graph.getGraphType() != GraphType.CITATION)) {
+			return ResponseEntity.notFound().build();
+		}
+
+		AppResponse appResponse = graphService.getAppResponseByGraphId(graphId);
+		String categorizedResponseBody = appResponse == null ? "" : appResponse.getGeneratedResponse();
+		boolean alreadyClassified = categorizedResponseBody != null && !categorizedResponseBody.isBlank();
+		if (categorizedResponseBody == null || categorizedResponseBody.isBlank()) {
+			String prompt = requestBody.path("prompt").asText("");
+			JsonNode papers = requestBody.path("papers");
+			String opinionPrompt = String.format(
+					"Here is the user's research question: '%s' and a JSON list of relevant research papers: '%s'. "
+					+ "Group the papers into supporting or opposing categories. Under each category, group paper IDs by a short summary of their relevant findings. "
+					+ "Return only valid JSON shaped like {\"supporting\": {\"opinion\": [\"paperId\"]}, \"opposing\": {\"opinion\": [\"paperId\"]}}.",
+					prompt, papers);
+			categorizedResponseBody = geminiService.callApi(opinionPrompt, apiKey);
+			if (appResponse != null) {
+				appResponse.setGeneratedResponse(categorizedResponseBody);
+				appResponse.setGeneratedDateTime(LocalDateTime.now());
+				appResponseService.updateAppResponse(appResponse.getId(), appResponse);
+			}
+		}
+
+		ObjectNode categorized = categorizedResponseFormatting(categorizedResponseBody).getBody();
+		if (categorized == null) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+		if (!alreadyClassified && graph.getGraphType() == GraphType.OPINION) persistOpinionGraph(graph, categorized);
+
+		ObjectMapper objectMapper = new ObjectMapper();
+		ObjectNode result = objectMapper.createObjectNode();
+		result.set("supporting", categorized.path("supporting").isObject()
+				? categorized.path("supporting") : objectMapper.createObjectNode());
+		result.set("opposing", categorized.path("opposing").isObject()
+				? categorized.path("opposing") : objectMapper.createObjectNode());
+		return ResponseEntity.ok(result);
+	}
+
+	private void persistOpinionGraph(Graph graph, ObjectNode categorizedResponseJSON) {
+		for (String key : List.of("supporting", "opposing")) {
+			JsonNode opinionCategoryNode = categorizedResponseJSON.path(key);
+			if (!opinionCategoryNode.isObject()) continue;
+			OpinionType opinionType = key.equals("supporting") ? OpinionType.SUPPORTING : OpinionType.OPPOSING;
+			for (Map.Entry<String, JsonNode> opinionEntry : ((ObjectNode) opinionCategoryNode).properties()) {
+				Opinion opinion = new Opinion();
+				opinion.setOpinionVal(opinionEntry.getKey());
+				opinion.setOpinionType(opinionType);
+				opinionService.saveOpinion(opinion);
+
+				JsonNode paperIds = opinionEntry.getValue();
+				if (paperIds.isArray()) {
+					for (JsonNode paperIdNode : paperIds) {
+						String paperId = paperIdNode.asText();
+						ResearchPaper paper = researchPaperService.getReferenceBySemanticPaperId(paperId);
+						if (paper != null) {
+							opinionRelatedPaperService.saveOpinionRelatedPapers(new OpinionRelatedPapers(opinion, paper));
+						}
+					}
+				}
+
+				OpinionEdgeId edgeId = new OpinionEdgeId(0, graph.getId(), opinion.getId());
+				edgeId.setEdgeId(opinionEdgeIdService.generateRandomEdgeId());
+				OpinionEdge edge = new OpinionEdge();
+				edge.setId(edgeId);
+				edge.setGraph(graph);
+				edge.setOpinion(opinion);
+				opinionEdgeService.saveOpinionEdge(edge);
+			}
 		}
 	}
 

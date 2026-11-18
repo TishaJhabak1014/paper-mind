@@ -21,11 +21,17 @@ public class GeminiService {
     @Autowired
     private RestTemplate restTemplate; // for HTTP request
 
+    @Autowired
+    private ApiRateLimitService rateLimitService;
+
     @Value("${google.ai.model:gemini-3.8-flash}")
     private String model = "gemini-3.8-flash";
 
     @Value("${google.ai.fallback-model:gemini-3.5-flash-lite}")
     private String fallbackModel = "gemini-3.5-flash-lite";
+
+    @Value("${app.rate-limit.gemini-interval-ms:1000}")
+    private long minimumRequestIntervalMillis;
 
     private static final String API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent";
 
@@ -89,6 +95,7 @@ public class GeminiService {
     }
 
     private String generateContent(String modelName, HttpEntity<String> request) {
+        rateLimitService.acquire("gemini", minimumRequestIntervalMillis);
         String apiUrl = String.format(API_URL_TEMPLATE, modelName);
         ResponseEntity<String> response = restTemplate.exchange(apiUrl, HttpMethod.POST, request, String.class);
         return response.getBody();

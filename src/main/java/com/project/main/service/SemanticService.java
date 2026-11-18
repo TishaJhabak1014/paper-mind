@@ -24,6 +24,11 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.net.URI;
+import java.time.Duration;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import org.springframework.beans.factory.annotation.Value;
 
 @Service
 public class SemanticService {
@@ -31,15 +36,31 @@ public class SemanticService {
     @Autowired
     private RestTemplate restTemplate; // for HTTP request
 
+    @Autowired
+    private RedisCacheService cacheService;
+
+    @Autowired
+    private ApiRateLimitService rateLimitService;
+
+    @Autowired
+    private AbstractFallbackService abstractFallbackService;
+
     private final String SEARCH_API_URL = "https://api.semanticscholar.org/graph/v1/paper/search/bulk";
     private final int PAPER_LIMIT = 20; // limit to 20 papers
     private final int CITATION_LIMIT = 5; // limit to 5 citations per paper
-    private static final long MIN_REQUEST_INTERVAL_MS = 1_100;
-    private long lastRequestAt;
+    @Value("${app.cache.semantic-search-ttl:6h}")
+    private Duration searchCacheTtl;
+
+    @Value("${app.cache.semantic-citation-ttl:1h}")
+    private Duration citationCacheTtl;
+
+    @Value("${app.rate-limit.semantic-scholar-interval-ms:1100}")
+    private long minimumRequestIntervalMillis;
 
     public ResponseEntity<JsonNode> paperRelevanceSearch(String query) {
         // Semantic Scholar may omit an abstract; a blank field means unavailable from this source.
-        String fields = "title,url,authors,citationCount,abstract,publicationTypes,publicationDate,openAccessPdf";
+        // The bulk-search endpoint rejects `tldr`; fetch TLDR only through the paper batch endpoint.
+        String fields = "title,url,authors,citationCount,abstract,externalIds,publicationTypes,publicationDate,openAccessPdf";
 
         UriComponents fullUrl = UriComponentsBuilder.fromUriString(SEARCH_API_URL)
                 .queryParam("query", query)
@@ -90,42 +111,69 @@ public class SemanticService {
                 missingAbstractIds.add(paperId.toString());
             }
         }
-        if (missingAbstractIds.isEmpty()) return;
+        if (!missingAbstractIds.isEmpty()) {
+            UriComponents detailsUrl = UriComponentsBuilder.fromUriString("https://api.semanticscholar.org")
+                    .pathSegment("graph", "v1", "paper", "batch")
+                    .queryParam("fields", "paperId,abstract,tldr,externalIds,openAccessPdf")
+                    .build()
+                    .encode();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Accept", "application/json");
+            headers.set("Content-Type", "application/json");
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(Map.of("ids", missingAbstractIds), headers);
 
-        UriComponents detailsUrl = UriComponentsBuilder.fromUriString("https://api.semanticscholar.org")
-                .pathSegment("graph", "v1", "paper", "batch")
-                .queryParam("fields", "paperId,abstract")
-                .build()
-                .encode();
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Accept", "application/json");
-        headers.set("Content-Type", "application/json");
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(Map.of("ids", missingAbstractIds), headers);
+            try {
+                ResponseEntity<String> response = exchangeWithRateLimit(detailsUrl.toUri(), entity, HttpMethod.POST);
+                List<java.util.Map<String, Object>> details = objectMapper.readValue(response.getBody(),
+                        new TypeReference<List<java.util.Map<String, Object>>>() {});
+                Map<String, JsonNode> detailsById = new java.util.HashMap<>();
+                for (java.util.Map<String, Object> detail : details) {
+                    if (detail == null) continue;
+                    Object id = detail.get("paperId");
+                    if (id != null) detailsById.put(id.toString(), objectMapper.convertValue(detail, JsonNode.class));
+                }
+                for (java.util.Map<String, Object> paper : papers) {
+                    Object id = paper.get("paperId");
+                    if (id == null) continue;
+                    JsonNode detail = detailsById.get(id.toString());
+                    if (detail == null) continue;
 
-        try {
-            ResponseEntity<String> response = exchangeWithRateLimit(detailsUrl.toUri(), entity, HttpMethod.POST);
-            List<java.util.Map<String, Object>> details = objectMapper.readValue(response.getBody(),
-                    new TypeReference<List<java.util.Map<String, Object>>>() {});
-            Map<String, String> abstractsById = new java.util.HashMap<>();
-            for (java.util.Map<String, Object> detail : details) {
-                if (detail == null) continue;
-                Object id = detail.get("paperId");
-                Object abstractValue = detail.get("abstract");
-                if (id != null && abstractValue != null && !abstractValue.toString().isBlank()) {
-                    abstractsById.put(id.toString(), abstractValue.toString());
+                    if (!hasText(paper.get("abstract")) && detail.path("abstract").isTextual()
+                            && !detail.path("abstract").asText().isBlank()) {
+                        paper.put("abstract", detail.path("abstract").asText());
+                        paper.put("abstractSource", "Semantic Scholar");
+                    }
+                    mergeMapField(paper, "tldr", detail.path("tldr"), objectMapper);
+                    mergeMapField(paper, "externalIds", detail.path("externalIds"), objectMapper);
+                    mergeMapField(paper, "openAccessPdf", detail.path("openAccessPdf"), objectMapper);
                 }
+            } catch (Exception exception) {
+                // Keep search results usable when the optional enrichment request fails.
+                System.err.println("Could not enrich missing Semantic Scholar abstracts: " + exception.getMessage());
             }
-            for (java.util.Map<String, Object> paper : papers) {
-                Object id = paper.get("paperId");
-                if (id != null && (paper.get("abstract") == null || paper.get("abstract").toString().isBlank())) {
-                    String abstractText = abstractsById.get(id.toString());
-                    if (abstractText != null) paper.put("abstract", abstractText);
-                }
-            }
-        } catch (Exception exception) {
-            // Keep search results usable when the optional enrichment request fails.
-            System.err.println("Could not enrich missing Semantic Scholar abstracts: " + exception.getMessage());
         }
+
+        for (java.util.Map<String, Object> paper : papers) {
+            Object abstractValue = paper.get("abstract");
+            if (abstractValue != null && !abstractValue.toString().isBlank()) {
+                paper.putIfAbsent("abstractSource", "Semantic Scholar");
+            }
+        }
+        abstractFallbackService.enrich(papers);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void mergeMapField(Map<String, Object> paper, String field, JsonNode detailValue, ObjectMapper objectMapper) {
+        if (!detailValue.isObject()) return;
+        Map<String, Object> merged = new java.util.HashMap<>();
+        Object current = paper.get(field);
+        if (current instanceof Map<?, ?> currentMap) currentMap.forEach((key, value) -> merged.put(key.toString(), value));
+        merged.putAll(objectMapper.convertValue(detailValue, Map.class));
+        paper.put(field, merged);
+    }
+
+    private boolean hasText(Object value) {
+        return value != null && !value.toString().isBlank();
     }
 
     /**
@@ -215,31 +263,54 @@ public class SemanticService {
         }
     }
 
-    private synchronized ResponseEntity<String> exchangeWithRateLimit(URI uri, HttpEntity<String> entity) {
+    private ResponseEntity<String> exchangeWithRateLimit(URI uri, HttpEntity<String> entity) {
         return exchangeWithRateLimit(uri, entity, HttpMethod.GET);
     }
 
-    private synchronized ResponseEntity<String> exchangeWithRateLimit(URI uri, HttpEntity<?> entity, HttpMethod method) {
-        for (int attempt = 0; attempt < 3; attempt++) {
-            long waitMillis = MIN_REQUEST_INTERVAL_MS - (System.currentTimeMillis() - lastRequestAt);
-            if (waitMillis > 0) {
-                pause(waitMillis);
-            }
+    private ResponseEntity<String> exchangeWithRateLimit(URI uri, HttpEntity<?> entity, HttpMethod method) {
+        String requestBody = entity.getBody() == null ? "" : entity.getBody().toString();
+        String cacheKey = "papermind:semantic:" + RedisCacheService.digest(method.name() + "|" + uri + "|" + requestBody);
+        String cachedBody = cacheService.get(cacheKey);
+        if (cachedBody != null) return ResponseEntity.ok(cachedBody);
 
-            lastRequestAt = System.currentTimeMillis();
+        Duration cacheTtl = uri.getPath().contains("/citations") ? citationCacheTtl : searchCacheTtl;
+        rateLimitService.acquire("semantic-scholar", minimumRequestIntervalMillis);
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(uri, method, entity, String.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                cacheService.put(cacheKey, response.getBody(), cacheTtl);
+            }
+            return response;
+        } catch (HttpClientErrorException.TooManyRequests exception) {
+            long cooldownMillis = retryAfterMillis(exception, 0);
+            rateLimitService.applyCooldown("semantic-scholar", cooldownMillis);
+            long retrySeconds = (cooldownMillis + 999) / 1_000;
+            throw new ResponseStatusException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "Semantic Scholar asked us to slow down. Retry in about " + retrySeconds + " seconds.",
+                    exception);
+        }
+    }
+
+    private long retryAfterMillis(HttpClientErrorException exception, int attempt) {
+        String retryAfter = exception.getResponseHeaders() == null
+                ? null
+                : exception.getResponseHeaders().getFirst("Retry-After");
+        long requestedMillis = 0;
+        if (retryAfter != null && !retryAfter.isBlank()) {
             try {
-                return restTemplate.exchange(uri, method, entity, String.class);
-            } catch (HttpClientErrorException.TooManyRequests exception) {
-                if (attempt == 2) {
-                    throw new ResponseStatusException(
-                            HttpStatus.TOO_MANY_REQUESTS,
-                            "Semantic Scholar is rate limiting requests. Please retry in a short while.",
-                            exception);
+                requestedMillis = Math.multiplyExact(Long.parseLong(retryAfter.trim()), 1_000L);
+            } catch (NumberFormatException | ArithmeticException ignored) {
+                try {
+                    requestedMillis = ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME)
+                            .toInstant().toEpochMilli() - System.currentTimeMillis();
+                } catch (DateTimeParseException ignoredDate) {
+                    // Use a bounded exponential delay if the provider omitted or malformed the header.
                 }
-                pause(2_000L * (attempt + 1));
             }
         }
-        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Semantic Scholar is temporarily unavailable.");
+        long fallbackMillis = 5_000L * (attempt + 1);
+        return Math.max(1_000L, Math.min(300_000L, requestedMillis > 0 ? requestedMillis : fallbackMillis));
     }
 
     private void pause(long millis) {

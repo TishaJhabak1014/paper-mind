@@ -4,6 +4,9 @@ import PaperListOpinion from '../../components/PaperListOpinion';
 import TopNavigation from '../../components/TopNavigation';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
+import GraphProgressNotice from '../../components/GraphProgressNotice';
+import useCitationEnrichment from '../../hooks/useCitationEnrichment';
+import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
 
 
 function ListViewCitation() {
@@ -19,9 +22,18 @@ function ListViewCitation() {
   const [selectedAuthor, setSelectedAuthor] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [paperSearch, setPaperSearch] = useState('');
-  const [sortOrder, setSortOrder] = useState('newest');
+  const [sortOrder, setSortOrder] = useState('citations');
   const location = useLocation();
   const [searchPrompt, setSearchPrompt] = useState('');
+  const { citations, completed: citationProgress, total: citationTotal, loading: citationsLoading, failed: citationsFailed, loadingPaperIds, failedPaperIds, retryFailed: retryCitationLoads } =
+    useCitationEnrichment(location.state?.graphId, Array.isArray(location.state?.papers) ? location.state.papers : [], location.state?.citations || {});
+  const { supporting, opposing, status: opinionStatus } = useOpinionEnrichment(
+    location.state?.graphId,
+    location.state?.prompt || '',
+    Array.isArray(location.state?.papers) ? location.state.papers : [],
+    location.state?.supporting || {},
+    location.state?.opposing || {},
+  );
   
 
   useEffect(() => {
@@ -70,6 +82,9 @@ function ListViewCitation() {
     }
 
     filtered.sort((a, b) => {
+      if (sortOrder === 'citations') {
+        return (Number(b.citationCount) || 0) - (Number(a.citationCount) || 0);
+      }
       const yearA = a.publicationDate ? new Date(a.publicationDate).getFullYear() : 0;
       const yearB = b.publicationDate ? new Date(b.publicationDate).getFullYear() : 0;
       return sortOrder === 'oldest' ? yearA - yearB : yearB - yearA;
@@ -87,7 +102,7 @@ function ListViewCitation() {
 
   const generateAISummary = async (paperId, abstract) => {
     try {
-      const response = await api.post('/api/generate-summary', { abstract });
+      const response = await api.post('/api/generate-summary', { paperId, abstract });
       console.log('AI Summary:', response.data);
     } catch (error) {
       console.error('Error fetching AI summary:', error);
@@ -105,15 +120,27 @@ function ListViewCitation() {
   return (
     <div>
       <TopNavigation currentView={currentView} 
+      papers={graphPapers}
+      viewtype="CITATION"
+      prompt={searchPrompt}
+      citations={citations}
+      graphId={location.state?.graphId}
+      supporting={supporting}
+      opposing={opposing}
+      selectedFilter={location.state?.selectedFilter}
       onViewChange={(view) => {
         setCurrentView(view);
         if (view === 'Graph View') {
             // navigate back to the Graph View and pass the current state
-            navigate('/papers-graphview', { state: { ...location.state, currentView: 'Graph View' } });
+            navigate('/papers-graphview', { state: { ...location.state, papers: graphPapers, citations, graphId: location.state?.graphId, currentView: 'Graph View' } });
         }
     }}
       />
       <Container maxWidth="xl">
+        {citationsLoading && <GraphProgressNotice message={`Loading citation connections (${citationProgress} of ${citationTotal})…`} progress={{ completed: citationProgress, total: citationTotal }} />}
+        {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}
+        {opinionStatus === 'loading' && <GraphProgressNotice message="Grouping papers by supporting and opposing findings…" />}
+        {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion filters are unavailable. All papers remain available." error />}
         <Grid container spacing={3}>
           {/* Filters on the left with fixed positioning */}
           <Grid item xs={3} style={{ position: 'fixed', top: '100px', left: 0, height: '80vh', overflowY: 'auto' }}>
@@ -121,7 +148,8 @@ function ListViewCitation() {
               <Typography variant="h6" sx={{ color: 'black', fontWeight: 'light' }}>Apply Filters</Typography>
               <br></br>
               <TextField fullWidth label="Search papers" placeholder="Title, author, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} sx={{ mb: 2 }} />
-              <TextField fullWidth select label="Sort by year" value={sortOrder} onChange={e => setSortOrder(e.target.value)} sx={{ mb: 2 }}>
+              <TextField fullWidth select label="Sort results" value={sortOrder} onChange={e => setSortOrder(e.target.value)} sx={{ mb: 2 }}>
+                <MenuItem value="citations">Most cited first</MenuItem>
                 <MenuItem value="newest">Newest first</MenuItem>
                 <MenuItem value="oldest">Oldest first</MenuItem>
               </TextField>
@@ -172,6 +200,8 @@ function ListViewCitation() {
             {filteredPapers.length > 0 ? (
               <PaperListOpinion 
                 papers={filteredPapers} 
+                loadingCitationIds={loadingPaperIds}
+                failedCitationIds={failedPaperIds}
                 onGenerateSummaryClick={(paperId, abstract) => generateAISummary(paperId, abstract)} 
               />
             ) : (

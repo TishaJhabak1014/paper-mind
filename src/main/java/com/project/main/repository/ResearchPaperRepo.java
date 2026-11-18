@@ -11,6 +11,8 @@ import java.util.Optional;
 public interface ResearchPaperRepo extends JpaRepository<ResearchPaper, Integer> {
     Optional<ResearchPaper> findBySemanticPaperId(String semanticPaperId);
 
+    boolean existsBySemanticPaperId(String semanticPaperId);
+
     @Query("select paper.paperId from ResearchPaper paper where paper.semanticPaperId = :semanticPaperId order by paper.paperId")
     List<Integer> findIdsBySemanticPaperId(@Param("semanticPaperId") String semanticPaperId);
 }

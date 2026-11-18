@@ -31,7 +31,7 @@ export default function SearchComponent() {
 
         navigate('/loading');
         try {
-            const response = await api.post('/api/data', requestData);
+            const response = await api.post('/api/data', requestData, { params: { progressive: true } });
             const top20papers = response.data.Papers || [];
             const supporting = response.data.supporting || {};
             const opposing = response.data.opposing || {};
@@ -39,18 +39,19 @@ export default function SearchComponent() {
             setGraphPapers(top20papers);
 
             if (requestData.graphViewType === 'CITATION') {
-                navigate('/papers-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: requestData.graphViewType, prompt, supporting, opposing, citations, selectedFilter: category } });
+                navigate('/papers-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: requestData.graphViewType, graphId: response.data.graphId, prompt, supporting, opposing, citations, selectedFilter: category } });
             } else {
-                navigate('/papers-opinion-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: requestData.graphViewType, supporting, opposing, prompt } });
+                navigate('/papers-opinion-graphview', { state: { papers: response.data, graphPapers: top20papers, loading: false, graphViewType: requestData.graphViewType, graphId: response.data.graphId, supporting, opposing, prompt } });
             }
         } catch (error) {
             console.error('Failed to fetch search results:', error);
             const status = error.response?.status;
             const responseBody = error.response?.data;
+            const providerMessage = typeof responseBody === 'string' ? responseBody : responseBody?.message;
             const message = typeof responseBody === 'string' && responseBody.length < 300
                 ? responseBody
                 : status === 429
-                    ? 'The research provider is rate limiting requests. Please wait briefly and retry.'
+                    ? (providerMessage || 'An upstream provider is rate limiting requests. Please wait briefly and retry.')
                     : status === 503
                         ? 'The AI provider is temporarily busy. Please retry in a short while.'
                         : 'Search could not be completed. Please retry.';
