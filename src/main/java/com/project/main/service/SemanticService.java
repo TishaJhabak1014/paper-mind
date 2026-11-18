@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.net.URI;
 
@@ -65,6 +66,7 @@ public class SemanticService {
 
             if (papers != null && !papers.isEmpty()) {
                 papers = selectRelevantAndDiversePapers(papers);
+                enrichMissingAbstracts(papers, objectMapper);
                 JsonNode papersNode = objectMapper.convertValue(papers, JsonNode.class);
                 return ResponseEntity.ok(papersNode);
 
@@ -75,6 +77,54 @@ public class SemanticService {
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
+    }
+
+    /** Fill abstracts omitted by bulk search using Semantic Scholar's paper batch endpoint. */
+    private void enrichMissingAbstracts(List<java.util.Map<String, Object>> papers, ObjectMapper objectMapper) {
+        List<String> missingAbstractIds = new ArrayList<>();
+        for (java.util.Map<String, Object> paper : papers) {
+            Object abstractValue = paper.get("abstract");
+            Object paperId = paper.get("paperId");
+            if ((abstractValue == null || abstractValue.toString().isBlank()) && paperId != null) {
+                missingAbstractIds.add(paperId.toString());
+            }
+        }
+        if (missingAbstractIds.isEmpty()) return;
+
+        UriComponents detailsUrl = UriComponentsBuilder.fromUriString("https://api.semanticscholar.org")
+                .pathSegment("graph", "v1", "paper", "batch")
+                .queryParam("fields", "paperId,abstract")
+                .build()
+                .encode();
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Accept", "application/json");
+        headers.set("Content-Type", "application/json");
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(Map.of("ids", missingAbstractIds), headers);
+
+        try {
+            ResponseEntity<String> response = exchangeWithRateLimit(detailsUrl.toUri(), entity, HttpMethod.POST);
+            List<java.util.Map<String, Object>> details = objectMapper.readValue(response.getBody(),
+                    new TypeReference<List<java.util.Map<String, Object>>>() {});
+            Map<String, String> abstractsById = new java.util.HashMap<>();
+            for (java.util.Map<String, Object> detail : details) {
+                if (detail == null) continue;
+                Object id = detail.get("paperId");
+                Object abstractValue = detail.get("abstract");
+                if (id != null && abstractValue != null && !abstractValue.toString().isBlank()) {
+                    abstractsById.put(id.toString(), abstractValue.toString());
+                }
+            }
+            for (java.util.Map<String, Object> paper : papers) {
+                Object id = paper.get("paperId");
+                if (id != null && (paper.get("abstract") == null || paper.get("abstract").toString().isBlank())) {
+                    String abstractText = abstractsById.get(id.toString());
+                    if (abstractText != null) paper.put("abstract", abstractText);
+                }
+            }
+        } catch (Exception exception) {
+            // Keep search results usable when the optional enrichment request fails.
+            System.err.println("Could not enrich missing Semantic Scholar abstracts: " + exception.getMessage());
         }
     }
 
@@ -166,6 +216,10 @@ public class SemanticService {
     }
 
     private synchronized ResponseEntity<String> exchangeWithRateLimit(URI uri, HttpEntity<String> entity) {
+        return exchangeWithRateLimit(uri, entity, HttpMethod.GET);
+    }
+
+    private synchronized ResponseEntity<String> exchangeWithRateLimit(URI uri, HttpEntity<?> entity, HttpMethod method) {
         for (int attempt = 0; attempt < 3; attempt++) {
             long waitMillis = MIN_REQUEST_INTERVAL_MS - (System.currentTimeMillis() - lastRequestAt);
             if (waitMillis > 0) {
@@ -174,7 +228,7 @@ public class SemanticService {
 
             lastRequestAt = System.currentTimeMillis();
             try {
-                return restTemplate.exchange(uri, HttpMethod.GET, entity, String.class);
+                return restTemplate.exchange(uri, method, entity, String.class);
             } catch (HttpClientErrorException.TooManyRequests exception) {
                 if (attempt == 2) {
                     throw new ResponseStatusException(
