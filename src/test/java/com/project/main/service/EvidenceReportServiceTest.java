@@ -60,7 +60,7 @@ class EvidenceReportServiceTest {
     @Test
     void synthesisValidatesEveryClaimSourceAgainstIncludedAbstracts() {
         when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
-        when(aiTextGateway.generate(anyString())).thenReturn(
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
                 "{\"synthesis\":\"The abstracts indicate a relationship.\","
                         + "\"claims\":[{\"text\":\"The first paper reports a link.\",\"sourcePaperIds\":[\"p1\"],\"caveat\":\"Abstract only.\"}],"
                         + "\"coverageGaps\":[],\"limitations\":[\"Abstract-only evidence.\"]}");
@@ -75,7 +75,7 @@ class EvidenceReportServiceTest {
     @Test
     void rejectsModelClaimThatCitesPaperOutsideSelectedScope() {
         when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
-        when(aiTextGateway.generate(anyString())).thenReturn(
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
                 "{\"synthesis\":\"Claim.\",\"claims\":[{\"text\":\"Claim.\",\"sourcePaperIds\":[\"p2\"]}],\"coverageGaps\":[],\"limitations\":[]}");
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
@@ -96,7 +96,7 @@ class EvidenceReportServiceTest {
                         ReportType.EVIDENCE_SYNTHESIS, ReportScope.ALL, List.of("p3"))));
 
         assertEquals(422, exception.getStatusCode().value());
-        verify(aiTextGateway, never()).generate(anyString());
+        verify(aiTextGateway, never()).generateJson(anyString());
     }
 
     @Test
@@ -111,7 +111,7 @@ class EvidenceReportServiceTest {
                 .put("url", "https://example.org/citing");
         ArrayNode citations = mapper.createArrayNode().add(citation);
         when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(citations));
-        when(aiTextGateway.generate(anyString())).thenReturn(
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
                 "{\"synthesis\":\"One sampled passage extends the focal work.\","
                         + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"It says the work is extended.\"}],"
                         + "\"coverageGaps\":[],\"limitations\":[]}");
@@ -133,7 +133,7 @@ class EvidenceReportServiceTest {
         citation.putArray("contexts").add("A real citation passage.");
         citation.putObject("citingPaper").put("paperId", "citing");
         when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
-        when(aiTextGateway.generate(anyString())).thenReturn(
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
                 "{\"synthesis\":\"Some analysis.\",\"analyses\":[{\"contextId\":\"made-up\",\"relation\":\"SUPPORTS\",\"explanation\":\"Unsupported.\"}],\"coverageGaps\":[],\"limitations\":[]}");
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,

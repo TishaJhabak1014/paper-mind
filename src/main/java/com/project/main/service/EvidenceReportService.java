@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.project.main.dto.CitationAnalysisDto;
 import com.project.main.dto.CitationPassageDto;
@@ -33,6 +35,7 @@ import tools.jackson.databind.node.ObjectNode;
 /** Builds source manifests and validates every generated source reference. */
 @Service
 public class EvidenceReportService {
+    private static final Logger logger = LoggerFactory.getLogger(EvidenceReportService.class);
     private static final int CITATION_FOCAL_SAMPLE_SIZE = 5;
     private static final String CITATION_COVERAGE = "Semantic Scholar citation passages are sampled from up to the first five search-result papers, with up to five citing papers per focal paper. Only passages returned for this sample are analyzed.";
 
@@ -311,7 +314,7 @@ public class EvidenceReportService {
     private JsonNode requestJson(String prompt, String invalidMessage) {
         String response;
         try {
-            response = aiTextGateway.generate(prompt);
+            response = aiTextGateway.generateJson(prompt);
         } catch (ResponseStatusException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -326,6 +329,7 @@ public class EvidenceReportService {
         } catch (ResponseStatusException exception) {
             throw exception;
         } catch (Exception exception) {
+            logger.warn("AI report response was not valid JSON ({}).", exception.getClass().getSimpleName());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, invalidMessage, exception);
         }
     }
@@ -397,6 +401,7 @@ public class EvidenceReportService {
     private String nullToEmpty(String value) { return value == null ? "" : value; }
 
     private void invalidModelResponse(String message) {
+        logger.warn("AI report validation failed: {}", message);
         throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, message);
     }
 

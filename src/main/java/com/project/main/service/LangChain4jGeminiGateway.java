@@ -4,6 +4,9 @@ import java.time.Duration;
 
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -12,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 /** Uses LangChain4j's Gemini integration for report and abstract-summary generation. */
 @Service
 public class LangChain4jGeminiGateway implements AiTextGateway {
+    private static final Logger logger = LoggerFactory.getLogger(LangChain4jGeminiGateway.class);
     private final ApiRateLimitService rateLimitService;
 
     @Value("${google.ai.api-key:}")
@@ -32,34 +36,58 @@ public class LangChain4jGeminiGateway implements AiTextGateway {
 
     @Override
     public String generate(String prompt) {
+        return generate(prompt, false);
+    }
+
+    @Override
+    public String generateJson(String prompt) {
+        return generate(prompt, true);
+    }
+
+    private String generate(String prompt, boolean jsonResponse) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Set GOOGLE_AI_API_KEY before requesting an AI summary or report.");
         }
         try {
-            return generateWithModel(model, prompt);
+            return generateWithModel(model, prompt, jsonResponse);
         } catch (RuntimeException primaryFailure) {
+            logProviderFailure(model, primaryFailure);
             if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(model)) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                         "Gemini could not generate the requested text. Please retry.", primaryFailure);
             }
             try {
-                return generateWithModel(fallbackModel, prompt);
+                return generateWithModel(fallbackModel, prompt, jsonResponse);
             } catch (RuntimeException fallbackFailure) {
+                logProviderFailure(fallbackModel, fallbackFailure);
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                         "Gemini could not generate the requested text. Please retry.", fallbackFailure);
             }
         }
     }
 
-    private String generateWithModel(String modelName, String prompt) {
+    private void logProviderFailure(String modelName, RuntimeException failure) {
+        // Log provider/model diagnostics without logging prompts, abstracts, or API credentials.
+        logger.warn("LangChain4j Gemini request failed for model {} ({}): {}", modelName,
+                failure.getClass().getSimpleName(), safeDiagnostic(failure.getMessage()));
+    }
+
+    private String safeDiagnostic(String message) {
+        if (message == null || message.isBlank()) return "No provider diagnostic message";
+        String sanitized = message.replaceAll("(?i)(key|api[_-]?key|token)(\\s*[:=]\\s*)[^\\s,;]+", "$1$2[redacted]");
+        return sanitized.length() > 600 ? sanitized.substring(0, 600) : sanitized;
+    }
+
+    private String generateWithModel(String modelName, String prompt, boolean jsonResponse) {
         rateLimitService.acquire("gemini", minimumRequestIntervalMillis);
-        ChatModel chatModel = GoogleAiGeminiChatModel.builder()
+        var builder = GoogleAiGeminiChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .maxRetries(0)
-                .timeout(Duration.ofSeconds(45))
-                .build();
+                .timeout(Duration.ofSeconds(45));
+        if (jsonResponse) builder.responseFormat(ResponseFormat.JSON);
+        ChatModel chatModel = builder.build();
         return chatModel.chat(prompt);
     }
 }
