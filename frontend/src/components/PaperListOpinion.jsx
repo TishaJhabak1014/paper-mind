@@ -101,7 +101,7 @@ function PaperListOpinion({ papers, onGenerateSummaryClick, highlightedPaperId }
               </Typography>
             ) : (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                No abstract available for summary.
+                Abstract not available from Semantic Scholar.
               </Typography>
             )}
           </ListItem>

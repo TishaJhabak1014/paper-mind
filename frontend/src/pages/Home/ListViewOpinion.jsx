@@ -225,7 +225,7 @@ function ListViewOpinion() {
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                                            No abstract available for summary.
+                                            Abstract not available from Semantic Scholar.
                                         </Typography>
                                     )}
                                     <Collapse in={summaryOpen[entry.paper.paperId]} timeout="auto" unmountOnExit>
@@ -285,7 +285,7 @@ function ListViewOpinion() {
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                                            No abstract available for summary.
+                                            Abstract not available from Semantic Scholar.
                                         </Typography>
                                     )}
                                     <Collapse in={summaryOpen[entry.paper.paperId]} timeout="auto" unmountOnExit>

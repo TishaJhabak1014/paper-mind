@@ -31,11 +31,11 @@ public class AISummaryController {
 			return ResponseEntity.badRequest().body("An abstract is required to generate a summary.");
 		}
 
-		// gemini (1): AI summary of abstract
+		// The request contains only the abstract; don't ask the model to summarize full text.
         ObjectMapper objectMapper = new ObjectMapper();
 
 		String aiSummary = String.format(
-				"Paraphraze this paragraph that is abstract of an academic paper: '%s', aiming for general audience, do not use technical jargon or give simple explanation when technical terms are used. The output should be one cohesive paragraph so no list or dot points. If you receive empty abstract or cannot summarize for any reason, return empty string.",
+				"Summarize this abstract of an academic paper for a general audience: '%s'. Avoid technical jargon, or explain technical terms simply. Return one cohesive paragraph without a list. Base the summary only on the supplied abstract; do not imply that you have read the full paper. If you cannot summarize it, return an empty string.",
 				content);
 
 		try {

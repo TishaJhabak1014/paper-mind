@@ -20,7 +20,7 @@ function PaperDetailOpinion({ paper }) {
         children: [
           new Paragraph({ children: [new TextRun({ text: paper.title, bold: true, size: 28 })] }),
           new Paragraph({ children: [new TextRun({ text: '' })] }),
-          new Paragraph({ children: [new TextRun({ text: 'AI Summary:', bold: true, size: 24 })] }),
+          new Paragraph({ children: [new TextRun({ text: 'AI Summary of Abstract:', bold: true, size: 24 })] }),
           new Paragraph({ children: [new TextRun({ text: paper.summary, size: 22 })] }),
         ],
       }],
@@ -101,7 +101,7 @@ function PaperDetailOpinion({ paper }) {
   return (
     <Card>
       <CardContent>
-        <Typography variant="h6" component="div">AI Summary for {paper.title}</Typography>
+        <Typography variant="h6" component="div">AI Summary of Abstract for {paper.title}</Typography>
         <Typography variant="body2">{paper.summary}</Typography>
         <Tooltip title="Copy summary">
           <IconButton onClick={copyToClipboard} aria-label="Copy summary" sx={{ color: '#4287f5' }}>

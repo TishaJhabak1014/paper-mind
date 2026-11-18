@@ -37,6 +37,7 @@ public class SemanticService {
     private long lastRequestAt;
 
     public ResponseEntity<JsonNode> paperRelevanceSearch(String query) {
+        // Semantic Scholar may omit an abstract; a blank field means unavailable from this source.
         String fields = "title,url,authors,citationCount,abstract,publicationTypes,publicationDate,openAccessPdf";
 
         UriComponents fullUrl = UriComponentsBuilder.fromUriString(SEARCH_API_URL)
