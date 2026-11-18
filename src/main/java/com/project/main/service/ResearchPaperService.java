@@ -3,6 +3,7 @@ package com.project.main.service;
 import com.project.main.entity.ResearchPaper;
 import com.project.main.repository.ResearchPaperRepo;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 import java.util.List;
@@ -17,18 +18,40 @@ public class ResearchPaperService {
         this.researchPaperRepo = researchPaperRepo;
     }
 
+    @Transactional(readOnly = true)
     public List<ResearchPaper> getAllResearchPapers() {
         return researchPaperRepo.findAll();
     }
 
+    @Transactional(readOnly = true)
     public ResearchPaper getResearchPaperById(Integer id) {
         Optional<ResearchPaper> researchPaper = researchPaperRepo.findById(id);
         return researchPaper.orElse(null);
     }
 
+    @Transactional(readOnly = true)
     public ResearchPaper getResearchPaperBySemanticPaperId(String semanticPaperId) {
         Optional<ResearchPaper> researchPaper = researchPaperRepo.findBySemanticPaperId(semanticPaperId);
         return researchPaper.orElse(null);
+    }
+
+    /** Loads and refreshes an existing paper while the PostgreSQL large-object fields are in a transaction. */
+    @Transactional
+    public boolean refreshExistingPaperMetadata(String semanticPaperId, String title, java.time.LocalDateTime publishedDate,
+            String abstractText, String sourceLink) {
+        ResearchPaper existingPaper = researchPaperRepo.findBySemanticPaperId(semanticPaperId).orElse(null);
+        if (existingPaper == null) return false;
+
+        if ((existingPaper.getAbstractText() == null || existingPaper.getAbstractText().isBlank())
+                && abstractText != null && !abstractText.isBlank()) existingPaper.setAbstractText(abstractText);
+        if ((existingPaper.getTitle() == null || existingPaper.getTitle().isBlank())
+                && title != null && !title.isBlank()) existingPaper.setTitle(title);
+        if (existingPaper.getPublishedDate() == null && publishedDate != null) existingPaper.setPublishedDate(publishedDate);
+        if ((existingPaper.getSourceLink() == null || existingPaper.getSourceLink().isBlank())
+                && sourceLink != null && !sourceLink.isBlank()) existingPaper.setSourceLink(sourceLink);
+
+        researchPaperRepo.save(existingPaper);
+        return true;
     }
 
     public ResearchPaper getReferenceBySemanticPaperId(String semanticPaperId) {
@@ -46,6 +69,7 @@ public class ResearchPaperService {
         return researchPaperRepo.save(researchPaper);
     }
 
+    @Transactional
     public ResearchPaper updateResearchPaper(Integer id, ResearchPaper newResearchPaperDetails) {
         Optional<ResearchPaper> optionalResearchPaper = this.researchPaperRepo.findById(id);
 

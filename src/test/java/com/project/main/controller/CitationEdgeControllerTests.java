@@ -50,7 +50,7 @@ class CitationEdgeControllerTests {
 
         ResponseEntity<CitationEdge> response = citationEdgeController.getCitationEdgeById(1);
 
-        assertEquals(200, response.getStatusCodeValue());
+        assertEquals(200, response.getStatusCode().value());
         assertEquals(citationEdge, response.getBody());
         verify(citationEdgeService, times(1)).getCitationEdgeById(1);
     }
@@ -61,7 +61,7 @@ class CitationEdgeControllerTests {
 
         ResponseEntity<CitationEdge> response = citationEdgeController.getCitationEdgeById(1);
 
-        assertEquals(404, response.getStatusCodeValue());
+        assertEquals(404, response.getStatusCode().value());
         verify(citationEdgeService, times(1)).getCitationEdgeById(1);
     }
 
@@ -83,7 +83,7 @@ class CitationEdgeControllerTests {
 
         ResponseEntity<Void> response = citationEdgeController.deleteCitationEdge(1);
 
-        assertEquals(204, response.getStatusCodeValue());
+        assertEquals(204, response.getStatusCode().value());
         verify(citationEdgeService, times(1)).deleteCitationEdgeById(1);
     }
 

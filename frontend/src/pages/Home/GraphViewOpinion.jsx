@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Network } from 'vis-network/standalone/umd/vis-network.min.js';
 import GraphProgressNotice from '../../components/GraphProgressNotice';
 import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
+import EvidenceReportTool from '../../components/EvidenceReportTool';
 
 function GraphViewOpinion() {
   const [selectedPaper, setSelectedPaper] = useState(null);
@@ -28,6 +29,7 @@ function GraphViewOpinion() {
   const [openModal, setOpenModal] = useState(false);
   const [modalContent, setModalContent] = useState([]);
   const [selectedOpinion, setSelectedOpinion] = useState('');
+  const [selectedReportScope, setSelectedReportScope] = useState('SUPPORTING');
   const [searchPrompt, setSearchPrompt] = useState('');
   const navigate = useNavigate();
 
@@ -172,10 +174,12 @@ function GraphViewOpinion() {
           let opinion, paperIds;
 
           if (isSupportingNode) {
+            setSelectedReportScope('SUPPORTING');
             const opinionIndex = clickedNodeId.split('-')[1];
             opinion = Object.keys(supporting)[opinionIndex];
             paperIds = supporting[opinion];
           } else if (isOpposingNode) {
+            setSelectedReportScope('OPPOSING');
             const opinionIndex = clickedNodeId.split('-')[1];
             opinion = Object.keys(opposing)[opinionIndex];
             paperIds = opposing[opinion];
@@ -237,6 +241,7 @@ function GraphViewOpinion() {
       opposing={opposing} 
       prompt={searchPrompt}
       graphId={location.state?.graphId} />
+      <Box sx={{ maxWidth: 1280, mx: 'auto', px: 2, py: 1, display: 'flex', justifyContent: 'flex-end' }}><EvidenceReportTool graphId={location.state?.graphId} /></Box>
 
       {/* Dropdown for selecting opinions */}
       <Box sx={{ position: 'absolute', top: '6rem', right: '2rem', display: 'flex', alignItems: 'center' }}>
@@ -314,6 +319,7 @@ function GraphViewOpinion() {
               </li>
             ))}
           </ul>
+          {!!modalContent.length && <EvidenceReportTool graphId={location.state?.graphId} preset={{ reportType: 'EVIDENCE_SYNTHESIS', scope: selectedReportScope }} presetPaperIds={modalContent.map(paper => paper.paperId)} buttonLabel="Synthesize this group" />}
         </Box>
       </Modal>
     </div>

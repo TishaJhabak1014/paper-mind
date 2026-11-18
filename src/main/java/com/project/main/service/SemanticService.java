@@ -224,7 +224,7 @@ public class SemanticService {
     }
 
     public ResponseEntity<JsonNode> citationSearch(String paperID) {
-        String fields = "title,url,authors,citationCount,abstract,publicationTypes,publicationDate,openAccessPdf";
+        String fields = "title,url,authors,citationCount,abstract,publicationTypes,publicationDate,openAccessPdf,contexts,intents,isInfluential";
 
         UriComponents fullUrl = UriComponentsBuilder.fromUriString("https://api.semanticscholar.org")
                 .pathSegment("graph", "v1", "paper", paperID, "citations")

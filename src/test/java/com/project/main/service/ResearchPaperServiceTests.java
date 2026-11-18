@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -130,6 +131,32 @@ class ResearchPaperServiceTests {
 
         assertNull(result);
         verify(researchPaperRepo, times(1)).findBySemanticPaperId("SP123");
+    }
+
+    @Test
+    void refreshExistingPaperMetadataFillsOnlyMissingFields() {
+        ResearchPaper existing = new ResearchPaper("SP123", "", null, "", null, "", 4, 0);
+        LocalDateTime date = LocalDateTime.parse("2024-03-04T00:00:00");
+        when(researchPaperRepo.findBySemanticPaperId("SP123")).thenReturn(Optional.of(existing));
+        when(researchPaperRepo.save(existing)).thenReturn(existing);
+
+        boolean refreshed = researchPaperService.refreshExistingPaperMetadata("SP123", "Paper title", date,
+                "An abstract", "https://example.org/paper");
+
+        assertTrue(refreshed);
+        assertEquals("Paper title", existing.getTitle());
+        assertEquals(date, existing.getPublishedDate());
+        assertEquals("An abstract", existing.getAbstractText());
+        assertEquals("https://example.org/paper", existing.getSourceLink());
+        verify(researchPaperRepo).save(existing);
+    }
+
+    @Test
+    void refreshExistingPaperMetadataReturnsFalseWhenPaperIsNew() {
+        when(researchPaperRepo.findBySemanticPaperId("SP404")).thenReturn(Optional.empty());
+
+        assertFalse(researchPaperService.refreshExistingPaperMetadata("SP404", "Title", null, "Abstract", null));
+        verify(researchPaperRepo, never()).save(any(ResearchPaper.class));
     }
 
     @Test

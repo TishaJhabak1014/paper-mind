@@ -8,7 +8,16 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILE_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 function PaperDetailOpinion({ paper }) {
-  const summaryLabel = paper.summaryLabel || 'AI Summary of Abstract';
+  const summaryLabel = paper.summaryLabel || (paper.tldr?.text && !paper.abstract?.trim()
+    ? 'Semantic Scholar TLDR'
+    : 'Summary of available abstract');
+  const authors = Array.isArray(paper.authors) ? paper.authors.map(author => author?.name).filter(Boolean) : [];
+  const year = paper.publicationDate
+    ? new Date(paper.publicationDate).getFullYear()
+    : paper.year || null;
+  const landingPageUrl = paper.url || paper.landingPageUrl || null;
+  const pdfUrl = paper.openAccessPdf?.url || paper.pdfUrl || null;
+  const reference = `${authors.length ? authors.join(', ') : 'Authors not supplied'}${year ? ` (${year})` : ' (year not supplied)'}. ${paper.title || 'Title not supplied'}.`;
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const [saving, setSaving] = useState(false);
   const [driveMessage, setDriveMessage] = useState('');
@@ -20,8 +29,9 @@ function PaperDetailOpinion({ paper }) {
         properties: {},
         children: [
           new Paragraph({ children: [new TextRun({ text: paper.title, bold: true, size: 28 })] }),
+          new Paragraph({ children: [new TextRun({ text: reference, size: 20 })] }),
           new Paragraph({ children: [new TextRun({ text: '' })] }),
-          new Paragraph({ children: [new TextRun({ text: `${summaryLabel}:`, bold: true, size: 24 })] }),
+          new Paragraph({ children: [new TextRun({ text: `${summaryLabel} (based only on the available abstract):`, bold: true, size: 24 })] }),
           new Paragraph({ children: [new TextRun({ text: paper.summary, size: 22 })] }),
         ],
       }],
@@ -103,6 +113,14 @@ function PaperDetailOpinion({ paper }) {
     <Card>
       <CardContent>
         <Typography variant="h6" component="div">{summaryLabel} for {paper.title}</Typography>
+        {summaryLabel !== 'Semantic Scholar TLDR' && (
+          <Typography variant="caption" color="text.secondary" component="p">
+            This summary is based only on the available abstract, not the full paper.
+          </Typography>
+        )}
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{reference}</Typography>
+        {landingPageUrl && <Link href={landingPageUrl} target="_blank" rel="noopener noreferrer">Open paper landing page</Link>}
+        {pdfUrl && <Typography variant="body2"><Link href={pdfUrl} target="_blank" rel="noopener noreferrer">Open open-access PDF</Link></Typography>}
         <Typography variant="body2">{paper.summary}</Typography>
         <Tooltip title="Copy summary">
           <IconButton onClick={copyToClipboard} aria-label="Copy summary" sx={{ color: '#4287f5' }}>

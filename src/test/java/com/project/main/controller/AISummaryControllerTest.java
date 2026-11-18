@@ -1,73 +1,61 @@
 package com.project.main.controller;
 
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
+import com.project.main.dto.SummaryResponse;
+import com.project.main.service.PaperSummaryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.http.MediaType;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
-import tools.jackson.databind.ObjectMapper;
-import com.project.main.service.GeminiService;
-
-@SpringBootTest
-@AutoConfigureMockMvc
 class AISummaryControllerTest {
-
     @Mock
-    private GeminiService geminiService;
+    private PaperSummaryService paperSummaryService;
 
     @InjectMocks
-    private AISummaryController aiSummaryController;
+    private AISummaryController controller;
 
     private MockMvc mockMvc;
-
-    @Value("${google.ai.api-key:}")
-    private String apiKey;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        mockMvc = MockMvcBuilders.standaloneSetup(aiSummaryController).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
     @Test
-    void testGenerateAISummaryFailure() throws Exception {
-        when(geminiService.callApi(anyString(), anyString())).thenReturn(null);
+    void returnsTypedSummaryForPaperId() throws Exception {
+        when(paperSummaryService.summarize("paper-1"))
+                .thenReturn(new SummaryResponse("paper-1", "A concise summary.", "Available abstract"));
 
-        String requestBody = "This is a sample abstract.";
-        
         mockMvc.perform(post("/api/generate-summary")
-                .contentType("application/json")
-                .content(requestBody))
-                .andExpect(status().isInternalServerError())
-                .andExpect(content().string("No gemini response (1) received."));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paperId\":\"paper-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paperId").value("paper-1"))
+                .andExpect(jsonPath("$.summary").value("A concise summary."))
+                .andExpect(jsonPath("$.basis").value("Available abstract"));
     }
 
     @Test
-    void testGenerateAISummaryInvalidJson() throws Exception {
-        String invalidJsonResponse = "{ \"candidates\": [] }";
-        when(geminiService.callApi(anyString(), anyString())).thenReturn(invalidJsonResponse);
+    void returnsExplicitErrorWhenAbstractIsUnavailable() throws Exception {
+        when(paperSummaryService.summarize("paper-2")).thenThrow(new ResponseStatusException(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "No abstract was supplied by Semantic Scholar or the available fallback sources for this paper."));
 
-        String requestBody = "This is a sample abstract.";
-        
         mockMvc.perform(post("/api/generate-summary")
-                .contentType("application/json")
-                .content(requestBody))
-                .andExpect(status().isInternalServerError())
-                .andExpect(content().string("No gemini response (1) received."));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paperId\":\"paper-2\"}"))
+                .andExpect(status().is(422));
     }
 }

@@ -27,6 +27,15 @@ public class SemanticServiceTests {
     @Mock
     private RestTemplate restTemplate;
 
+    @Mock
+    private RedisCacheService cacheService;
+
+    @Mock
+    private ApiRateLimitService rateLimitService;
+
+    @Mock
+    private AbstractFallbackService abstractFallbackService;
+
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.openMocks(this);

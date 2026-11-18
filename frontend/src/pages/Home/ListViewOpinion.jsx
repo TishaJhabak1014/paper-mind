@@ -8,6 +8,7 @@ import PaperListOpinion from '../../components/PaperListOpinion';
 import GraphProgressNotice from '../../components/GraphProgressNotice';
 import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
 import { api } from '../../api';
+import EvidenceReportTool from '../../components/EvidenceReportTool';
 
 function ListViewOpinion() {
     // State declarations
@@ -130,13 +131,13 @@ function ListViewOpinion() {
     );
 
     // Function to generate AI summary when requested
-    const generateAISummary = async (id, abstract) => {
+    const generateAISummary = async (id) => {
         if (summaries[id] || loading[id]) return;
         setLoading(prev => ({ ...prev, [id]: true }));
         setSummaryErrors(prev => ({ ...prev, [id]: null }));
         try {
-            const response = await api.post('/api/generate-summary', { paperId: id, abstract });
-            setSummaries(prev => ({ ...prev, [id]: response.data }));
+            const response = await api.post('/api/generate-summary', { paperId: id });
+            setSummaries(prev => ({ ...prev, [id]: response.data.summary }));
         } catch (error) {
             console.error('Error fetching AI summary:', error);
             const message = typeof error.response?.data === 'string'
@@ -155,8 +156,8 @@ function ListViewOpinion() {
         setSummaries(prev => ({ ...prev, [id]: tldr.trim() }));
         setSummaryLabels(prev => ({ ...prev, [id]: 'Semantic Scholar TLDR' }));
       } else if (opening && abstract?.trim() && !summaries[id] && !loading[id]) {
-        setSummaryLabels(prev => ({ ...prev, [id]: 'AI Summary of Abstract' }));
-        generateAISummary(id, abstract);
+        setSummaryLabels(prev => ({ ...prev, [id]: 'Summary of available abstract' }));
+        generateAISummary(id);
       }
     };
 
@@ -193,6 +194,7 @@ function ListViewOpinion() {
                     navigate('/papers-opinion-graphview', { state: { ...location.state, papers: graphPapers, supporting: supportPapers, opposing: opposingPapers, graphId: location.state?.graphId, currentView: 'Graph View' } });
                 }
             }}/>
+            <Box sx={{ maxWidth: 1280, mx: 'auto', px: 2, py: 1, display: 'flex', justifyContent: 'flex-end' }}><EvidenceReportTool graphId={location.state?.graphId} /></Box>
             <Container maxWidth="xl">
                 <br />
                 <Typography variant="h5" textAlign="left" style={{ fontWeight: 'lighter', color: 'darkblue' }} gutterBottom>
@@ -246,7 +248,7 @@ function ListViewOpinion() {
                                             style={{ cursor: 'pointer', marginTop: 8 }}
                                             onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract, entry.paper.tldr?.text)}
                                         >
-                                            {summaryOpen[entry.paper.paperId] ? "Hide details" : entry.paper.abstract?.trim() ? "Show AI Summary" : "View Semantic Scholar TLDR"}
+                                            {summaryOpen[entry.paper.paperId] ? "Hide details" : entry.paper.abstract?.trim() ? "Summarize abstract" : "View Semantic Scholar TLDR"}
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
@@ -260,7 +262,7 @@ function ListViewOpinion() {
                                             ) : summaryErrors[entry.paper.paperId] ? (
                                                 <Box role="alert" sx={{ py: 1 }}>
                                                     <Typography color="error" variant="body2">{summaryErrors[entry.paper.paperId]}</Typography>
-                                                    <Button size="small" onClick={() => generateAISummary(entry.paper.paperId, entry.paper.abstract)}>
+                                                    <Button size="small" onClick={() => generateAISummary(entry.paper.paperId)}>
                                                         Retry summary
                                                     </Button>
                                                 </Box>
@@ -307,7 +309,7 @@ function ListViewOpinion() {
                                             style={{ cursor: 'pointer', marginTop: 8 }}
                                             onClick={() => handleSummaryToggle(entry.paper.paperId, entry.paper.abstract, entry.paper.tldr?.text)}
                                         >
-                                            {summaryOpen[entry.paper.paperId] ? "Hide details" : entry.paper.abstract?.trim() ? "Show AI Summary" : "View Semantic Scholar TLDR"}
+                                            {summaryOpen[entry.paper.paperId] ? "Hide details" : entry.paper.abstract?.trim() ? "Summarize abstract" : "View Semantic Scholar TLDR"}
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
@@ -321,7 +323,7 @@ function ListViewOpinion() {
                                             ) : summaryErrors[entry.paper.paperId] ? (
                                                 <Box role="alert" sx={{ py: 1 }}>
                                                     <Typography color="error" variant="body2">{summaryErrors[entry.paper.paperId]}</Typography>
-                                                    <Button size="small" onClick={() => generateAISummary(entry.paper.paperId, entry.paper.abstract)}>
+                                                    <Button size="small" onClick={() => generateAISummary(entry.paper.paperId)}>
                                                         Retry summary
                                                     </Button>
                                                 </Box>

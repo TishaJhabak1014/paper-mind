@@ -146,10 +146,6 @@ public class APIController {
 		for (JsonNode paperNode : fetchedPapers) {
 			String title = paperNode.get("title").asText();		
 			String paperId = paperNode.get("paperId").asText();			
-			// The fetched response below carries current metadata; avoid initializing an existing row's large-object abstract.
-			if (researchPaperService.existsBySemanticPaperId(paperId)) {
-				continue;
-			}
 
 			LocalDate publishedDate = null; // Initialize to null
 			if (paperNode.has("publicationDate") && !paperNode.get("publicationDate").isNull()) {
@@ -160,7 +156,7 @@ public class APIController {
 				}
 			}
 	
-			String abstractText = paperNode.get("abstract").asText("");
+			String abstractText = paperNode.path("abstract").asText("");
 			String sourceLink = paperNode.get("url").asText();
 			if (paperNode.has("openAccessPdf") && paperNode.get("openAccessPdf").has("url")) {
 				sourceLink = paperNode.get("openAccessPdf").get("url").asText();
@@ -168,10 +164,12 @@ public class APIController {
 
 			int citationsCount = paperNode.get("citationCount").asInt(0);
 			int viewsCount = 0; 
-
 			LocalDateTime publishedDateTime = null;
 			if (publishedDate != null) {
 				publishedDateTime = publishedDate.atStartOfDay();
+			}
+			if (researchPaperService.refreshExistingPaperMetadata(paperId, title, publishedDateTime, abstractText, sourceLink)) {
+				continue;
 			}
 
 			ResearchPaper researchPaper = new ResearchPaper(
@@ -399,6 +397,11 @@ public class APIController {
 		else {
 			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
 		}
+	}
+
+	/** Retains the direct-call signature used by existing integrations and tests. */
+	public ResponseEntity<String> mainAPIflow(UserPrompt userPrompt) {
+		return mainAPIflow(userPrompt, false);
 	}
 
 	@GetMapping("/citations/{graphId}/{paperId}")

@@ -7,6 +7,7 @@ import { api } from '../../api';
 import GraphProgressNotice from '../../components/GraphProgressNotice';
 import useCitationEnrichment from '../../hooks/useCitationEnrichment';
 import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
+import EvidenceReportTool from '../../components/EvidenceReportTool';
 
 
 function ListViewCitation() {
@@ -136,6 +137,7 @@ function ListViewCitation() {
         }
     }}
       />
+      <Box sx={{ maxWidth: 1280, mx: 'auto', px: 2, py: 1, display: 'flex', justifyContent: 'flex-end' }}><EvidenceReportTool graphId={location.state?.graphId} /></Box>
       <Container maxWidth="xl">
         {citationsLoading && <GraphProgressNotice message={`Loading citation connections (${citationProgress} of ${citationTotal})…`} progress={{ completed: citationProgress, total: citationTotal }} />}
         {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}

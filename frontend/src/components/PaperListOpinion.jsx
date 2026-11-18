@@ -25,13 +25,13 @@ function PaperListOpinion({ papers = [], onGenerateSummaryClick, highlightedPape
     setVisibleCount(current => Math.max(current, countThroughHighlightedPaper));
   }, [highlightedPaperId, papersKey]);
 
-  const generateAISummary = async (id, abstract) => {
+  const generateAISummary = async (id) => {
     if (loading[id] || summaries[id]) return;
     setLoading(prev => ({ ...prev, [id]: true }));
     setSummaryErrors(prev => ({ ...prev, [id]: null }));
     try {
-      const response = await api.post('/api/generate-summary', { paperId: id, abstract });
-      setSummaries(prev => ({ ...prev, [id]: response.data }));
+      const response = await api.post('/api/generate-summary', { paperId: id });
+      setSummaries(prev => ({ ...prev, [id]: response.data.summary }));
     } catch (error) {
       console.error('Error fetching AI summary:', error);
       const message = typeof error.response?.data === 'string'
@@ -51,8 +51,8 @@ function PaperListOpinion({ papers = [], onGenerateSummaryClick, highlightedPape
       setSummaries(prev => ({ ...prev, [paper.paperId]: tldr }));
       setSummaryLabels(prev => ({ ...prev, [paper.paperId]: 'Semantic Scholar TLDR' }));
     } else if (opening && paper.abstract?.trim() && !summaries[paper.paperId] && !loading[paper.paperId]) {
-      setSummaryLabels(prev => ({ ...prev, [paper.paperId]: 'AI Summary of Abstract' }));
-      generateAISummary(paper.paperId, paper.abstract);
+      setSummaryLabels(prev => ({ ...prev, [paper.paperId]: 'Summary of available abstract' }));
+      generateAISummary(paper.paperId);
     }
   };
 
@@ -131,7 +131,7 @@ function PaperListOpinion({ papers = [], onGenerateSummaryClick, highlightedPape
                 style={{ cursor: 'pointer', marginTop: 8 }}
                 onClick={() => toggleSummary(paper)}
               >
-                {summaryOpen[paper.paperId] ? "Hide details" : paper.abstract?.trim() ? "Show AI Summary" : "View Semantic Scholar TLDR"}
+                {summaryOpen[paper.paperId] ? "Hide details" : paper.abstract?.trim() ? "Summarize abstract" : "View Semantic Scholar TLDR"}
               </Typography>
             ) : (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
@@ -146,7 +146,7 @@ function PaperListOpinion({ papers = [], onGenerateSummaryClick, highlightedPape
                 ) : summaryErrors[paper.paperId] ? (
                   <Box role="alert" sx={{ py: 1 }}>
                     <Typography color="error" variant="body2">{summaryErrors[paper.paperId]}</Typography>
-                    <Button size="small" onClick={() => generateAISummary(paper.paperId, paper.abstract)}>
+                    <Button size="small" onClick={() => generateAISummary(paper.paperId)}>
                       Retry summary
                     </Button>
                   </Box>

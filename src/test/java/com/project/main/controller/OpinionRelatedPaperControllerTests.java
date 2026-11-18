@@ -50,7 +50,7 @@ class OpinionRelatedPaperControllerTests {
 
         ResponseEntity<OpinionRelatedPapers> response = opinionRelatedPaperController.getOpinionRelatedPapersById(1);
 
-        assertEquals(200, response.getStatusCodeValue());
+        assertEquals(200, response.getStatusCode().value());
         assertEquals(paper, response.getBody());
         verify(opinionRelatedPaperService, times(1)).getOpinionRelatedPapersById(1);
     }
@@ -61,7 +61,7 @@ class OpinionRelatedPaperControllerTests {
 
         ResponseEntity<OpinionRelatedPapers> response = opinionRelatedPaperController.getOpinionRelatedPapersById(1);
 
-        assertEquals(404, response.getStatusCodeValue());
+        assertEquals(404, response.getStatusCode().value());
         verify(opinionRelatedPaperService, times(1)).getOpinionRelatedPapersById(1);
     }
 
@@ -83,7 +83,7 @@ class OpinionRelatedPaperControllerTests {
 
         ResponseEntity<Void> response = opinionRelatedPaperController.deleteOpinionRelatedPapers(1);
 
-        assertEquals(204, response.getStatusCodeValue());
+        assertEquals(204, response.getStatusCode().value());
         verify(opinionRelatedPaperService, times(1)).deleteOpinionRelatedPapersById(1);
     }
 

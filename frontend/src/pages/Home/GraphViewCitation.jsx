@@ -10,6 +10,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import GraphProgressNotice from '../../components/GraphProgressNotice';
 import useCitationEnrichment from '../../hooks/useCitationEnrichment';
 import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
+import EvidenceReportTool from '../../components/EvidenceReportTool';
 
 
 function GraphViewCitation() {
@@ -148,6 +149,8 @@ function GraphViewCitation() {
         label: `${firstAuthor} ${year}`,
         title,
         pdfLink: pdfLink,
+        paperId: citingPaperObj.citingPaper.paperId,
+        contexts: Array.isArray(citingPaperObj.contexts) ? citingPaperObj.contexts.filter(context => typeof context === 'string' && context.trim()) : [],
       };
     };
   
@@ -322,6 +325,7 @@ function GraphViewCitation() {
         supporting={supporting}
         opposing={opposing}
       />
+      <Box sx={{ maxWidth: 1280, mx: 'auto', px: 2, py: 1, display: 'flex', justifyContent: 'flex-end' }}><EvidenceReportTool graphId={location.state?.graphId} /></Box>
       <Container maxWidth="xl">
         <br />
         <Typography sx={{ color: 'darkblue', fontWeight: 'light', fontSize: '20px' }}>
@@ -405,6 +409,7 @@ function GraphViewCitation() {
                       <Box>
                         <Typography variant="body2" fontWeight="medium">{citingPaper.title}</Typography>
                         <Typography variant="caption" color="text.secondary">{citingPaper.label}</Typography>
+                        {citingPaper.contexts?.map((context, contextIndex) => <Typography key={contextIndex} variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>“{context}”</Typography>)}
                       </Box>
                       {citingPaper.pdfLink ? (
                         <Link href={citingPaper.pdfLink} target="_blank" rel="noopener noreferrer" aria-label={`Open PDF for ${citingPaper.title}`}>
@@ -416,6 +421,7 @@ function GraphViewCitation() {
                 ))}
               </Box>
             ) : <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No sampled citing papers were returned for this result.</Typography>}
+            {selectedPaperDetails?.paperId && citingPapers.some(paper => paper.contexts?.length) && <Box sx={{ mt: 2 }}><EvidenceReportTool graphId={location.state?.graphId} preset={{ reportType: 'CITATION_CONTEXT', scope: 'ALL' }} presetPaperIds={[selectedPaperDetails.paperId]} buttonLabel="Analyze citation context" /></Box>}
           </Box>
         </Fade>
       </Modal>
