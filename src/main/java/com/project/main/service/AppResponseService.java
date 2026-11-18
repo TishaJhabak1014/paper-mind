@@ -5,6 +5,7 @@ import com.project.main.entity.UserPrompt;
 import com.project.main.repository.AppResponseRepo;
 import com.project.main.repository.UserPromptRepo;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -78,6 +79,7 @@ public class AppResponseService {
         return savedAppResponse;
     }
 
+    @Transactional
     public AppResponse updateAppResponse(Integer id, AppResponse newAppResponseDetails) {
         Optional<AppResponse> optionalAppResponse = this.appResponseRepo.findById(id);
 

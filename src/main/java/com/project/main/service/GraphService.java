@@ -5,6 +5,7 @@ import com.project.main.entity.AppResponse;
 import com.project.main.repository.AppResponseRepo;
 import com.project.main.repository.GraphRepo;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,6 +27,7 @@ public class GraphService {
     }
 
     // retrieves one Graph entity from the repo based on id
+    @Transactional(readOnly = true)
     public Graph getGraphById(Integer responseId) {
         Optional<Graph> optionalGraph = this.graphRepo.findById(responseId);
         if (optionalGraph.isPresent()) {
@@ -37,6 +39,7 @@ public class GraphService {
     }
 
     // retrieves one AppResponse entity from the repo based on Graph entity
+    @Transactional(readOnly = true)
     public AppResponse getAppResponseByGraphId(Integer responseId) {
         Optional<Graph> optionalGraph = this.graphRepo.findById(responseId);
         

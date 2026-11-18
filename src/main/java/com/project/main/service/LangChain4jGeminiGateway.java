@@ -86,7 +86,7 @@ public class LangChain4jGeminiGateway implements AiTextGateway {
                 .modelName(modelName)
                 .maxRetries(0)
                 .timeout(Duration.ofSeconds(45));
-        if (jsonResponse) builder.responseFormat(ResponseFormat.JSON);
+        if (jsonResponse) builder.responseFormat(ResponseFormat.JSON).maxOutputTokens(8192);
         ChatModel chatModel = builder.build();
         return chatModel.chat(prompt);
     }

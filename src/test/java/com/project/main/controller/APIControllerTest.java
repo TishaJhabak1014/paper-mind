@@ -176,6 +176,7 @@ public class APIControllerTest {
         ObjectNode expectedFormattedNode = objectMapper.createObjectNode();
         ObjectNode supportingNode = expectedFormattedNode.putObject("supporting");
         supportingNode.putArray("opinion1").add("paper1ID");
+        expectedFormattedNode.putObject("opposing");
 
         ResponseEntity<ObjectNode> formattedResponse = apiController.categorizedResponseFormatting(geminiResponse);
 

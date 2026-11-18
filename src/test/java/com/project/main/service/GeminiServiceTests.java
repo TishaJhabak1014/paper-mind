@@ -24,6 +24,9 @@ class GeminiServiceTests {
     @Mock
     private RestTemplate restTemplate;
 
+    @Mock
+    private ApiRateLimitService rateLimitService;
+
     @InjectMocks
     private GeminiService geminiService;
 

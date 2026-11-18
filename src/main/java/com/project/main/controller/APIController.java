@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -38,6 +40,7 @@ import java.util.Comparator;
 @RestController
 @RequestMapping("/api/data")
 public class APIController {
+	private static final Logger logger = LoggerFactory.getLogger(APIController.class);
 
 	@ExceptionHandler(ResponseStatusException.class)
 	public ResponseEntity<String> handleProviderException(ResponseStatusException exception) {
@@ -454,20 +457,45 @@ public class APIController {
 			String prompt = requestBody.path("prompt").asText("");
 			JsonNode papers = requestBody.path("papers");
 			String opinionPrompt = String.format(
-					"Here is the user's research question: '%s' and a JSON list of relevant research papers: '%s'. "
-					+ "Group the papers into supporting or opposing categories. Under each category, group paper IDs by a short summary of their relevant findings. "
-					+ "Return only valid JSON shaped like {\"supporting\": {\"opinion\": [\"paperId\"]}, \"opposing\": {\"opinion\": [\"paperId\"]}}.",
+					"Classify each supplied search-result paper against the user's research question. "
+					+ "Group IDs under supporting or opposing, with concise group labels of at most 8 words. "
+					+ "Include each supplied paperId exactly once when possible; do not invent IDs. "
+					+ "Return only an object with supporting and opposing objects whose values are arrays of paperId strings. "
+					+ "Question: %s\nPapers JSON: %s",
 					prompt, papers);
 			categorizedResponseBody = geminiService.callApi(opinionPrompt, apiKey);
-			if (appResponse != null) {
-				appResponse.setGeneratedResponse(categorizedResponseBody);
-				appResponse.setGeneratedDateTime(LocalDateTime.now());
-				appResponseService.updateAppResponse(appResponse.getId(), appResponse);
-			}
 		}
 
-		ObjectNode categorized = categorizedResponseFormatting(categorizedResponseBody).getBody();
-		if (categorized == null) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+		ResponseEntity<ObjectNode> formatted = categorizedResponseFormatting(categorizedResponseBody);
+		if ((formatted == null || !formatted.getStatusCode().is2xxSuccessful() || formatted.getBody() == null)
+				&& alreadyClassified) {
+			// An older stored Gemini envelope may be truncated or malformed. Regenerate instead of failing every retry.
+			String prompt = requestBody.path("prompt").asText("");
+			JsonNode papers = requestBody.path("papers");
+			String retryPrompt = String.format(
+					"Classify each supplied search-result paper against the user's research question. "
+					+ "Group IDs under supporting or opposing, with concise group labels of at most 8 words. "
+					+ "Include each supplied paperId exactly once when possible; do not invent IDs. "
+					+ "Return only an object with supporting and opposing objects whose values are arrays of paperId strings. "
+					+ "Question: %s\nPapers JSON: %s", prompt, papers);
+			categorizedResponseBody = geminiService.callApi(retryPrompt, apiKey);
+			formatted = categorizedResponseFormatting(categorizedResponseBody);
+		}
+		ObjectNode categorized = formatted == null || !formatted.getStatusCode().is2xxSuccessful() ? null : formatted.getBody();
+		if (categorized == null) {
+			logger.warn("Could not parse Gemini opinion classification for graph {}. A retry may regenerate the classification.", graphId);
+			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+		}
+		if (appResponse != null && (!alreadyClassified || categorizedResponseBody != null)) {
+			try {
+				appResponse.setGeneratedResponse(new ObjectMapper().writeValueAsString(categorized));
+				appResponse.setGeneratedDateTime(LocalDateTime.now());
+				appResponseService.updateAppResponse(appResponse.getId(), appResponse);
+			} catch (Exception exception) {
+				logger.warn("Parsed opinion classification could not be saved for graph {} ({}).", graphId,
+						exception.getClass().getSimpleName());
+			}
+		}
 		if (!alreadyClassified && graph.getGraphType() == GraphType.OPINION) persistOpinionGraph(graph, categorized);
 
 		ObjectMapper objectMapper = new ObjectMapper();
@@ -516,24 +544,31 @@ public class APIController {
 		try {         
 			ObjectMapper mapper = new ObjectMapper();
 			JsonNode rootNode = mapper.readTree(responseBody);
-	
-			String textNode = rootNode.path("candidates")
-				.get(0).path("content").path("parts")
-				.get(0).path("text").asText();
-	
-			textNode = textNode.replace("```json", "")
-								.replaceAll("\n", "")	.replaceAll("\\\\", "")
-								.replace("```", "").trim();
-	
-			ObjectNode formattedNode = (ObjectNode) mapper.readTree(textNode);
-	
-			return ResponseEntity.ok(formattedNode);
+			JsonNode categorized = rootNode;
+			if (!isCategorizedResponse(categorized)) {
+				String textNode = rootNode.path("candidates").path(0).path("content").path("parts").path(0).path("text").asText("");
+				textNode = textNode.trim().replaceFirst("(?s)^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "").trim();
+				if (textNode.isBlank()) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+				categorized = mapper.readTree(textNode);
+			}
+			if (!isCategorizedResponse(categorized)) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+			ObjectNode normalized = mapper.createObjectNode();
+		normalized.set("supporting", categorized.path("supporting").isObject()
+				? categorized.path("supporting") : mapper.createObjectNode());
+		normalized.set("opposing", categorized.path("opposing").isObject()
+				? categorized.path("opposing") : mapper.createObjectNode());
+			return ResponseEntity.ok(normalized);
 
 		} catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+			logger.warn("Gemini opinion output was malformed JSON ({}).", e.getClass().getSimpleName());
+			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
         }
     }
+
+	private boolean isCategorizedResponse(JsonNode node) {
+		return node != null && node.isObject()
+				&& (node.path("supporting").isObject() || node.path("opposing").isObject());
+	}
 
 	public ResponseEntity<ObjectNode> responseFormatting(String responseBody) {
 		try {

@@ -9,6 +9,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -62,6 +64,10 @@ public class GeminiService {
         partsNode.put("text", prompt); // user prompt
         contentNode.set("parts", objectMapper.createArrayNode().add(partsNode));
         requestBodyNode.set("contents", objectMapper.createArrayNode().add(contentNode));
+        ObjectNode generationConfig = objectMapper.createObjectNode();
+        generationConfig.put("responseMimeType", "application/json");
+        generationConfig.put("maxOutputTokens", 8192);
+        requestBodyNode.set("generationConfig", generationConfig);
 
         String requestBody;
 
@@ -76,16 +82,17 @@ public class GeminiService {
 
         try {
             return generateContent(model, request);
-        } catch (RestClientResponseException exception) {
-            int status = exception.getStatusCode().value();
-            boolean transientFailure = status == 429 || status == 503;
-            if (!transientFailure || fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(model)) {
-                throw exception;
+        } catch (RestClientException exception) {
+            boolean transientFailure = exception instanceof ResourceAccessException;
+            if (exception instanceof RestClientResponseException responseException) {
+                int status = responseException.getStatusCode().value();
+                transientFailure = status == 429 || status >= 500;
             }
+            if (!transientFailure || fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(model)) throw exception;
 
             try {
                 return generateContent(fallbackModel, request);
-            } catch (RestClientResponseException fallbackException) {
+            } catch (RestClientException fallbackException) {
                 throw new ResponseStatusException(
                         HttpStatus.SERVICE_UNAVAILABLE,
                         "Gemini is temporarily busy. Please retry in a short while.",
