@@ -73,7 +73,7 @@ function PaperListOpinion({ papers, onGenerateSummaryClick, highlightedPaperId }
                   </Typography>
                   <br />
                   <Typography component="span" variant="body2" color="textPrimary" fontSize="16px">
-                    Year: {new Date(paper.publicationDate).getFullYear()} | {formatPublicationTypes(paper.publicationTypes)}
+                    Year: {paper.publicationDate ? new Date(paper.publicationDate).getFullYear() : 'Unknown'} | {formatPublicationTypes(paper.publicationTypes)}
                   </Typography>
                   <br />
                   <Typography component="span" variant="body2" color="textPrimary" fontSize="16px">

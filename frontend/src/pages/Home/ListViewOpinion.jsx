@@ -204,7 +204,7 @@ function ListViewOpinion() {
                                         {entry.paper.authors.map(author => author.name).join(', ')}
                                     </Typography>
                                     <Typography component="span" variant="body2" color="textPrimary" fontSize="16px">
-                                        Year: {new Date(entry.paper.publicationDate).getFullYear()} | {formatPublicationTypes(entry.paper.publicationTypes)}
+                                        Year: {entry.paper.publicationDate ? new Date(entry.paper.publicationDate).getFullYear() : 'Unknown'} | {formatPublicationTypes(entry.paper.publicationTypes)}
                                     </Typography>
                                     <Typography>Cited by: {entry.paper.citationCount}</Typography>
                                     {entry.paper.url && (
@@ -264,7 +264,7 @@ function ListViewOpinion() {
                                         {entry.paper.authors.map(author => author.name).join(', ')}
                                     </Typography>
                                     <Typography component="span" variant="body2" color="textPrimary" fontSize="16px">
-                                        Year: {new Date(entry.paper.publicationDate).getFullYear()} | {formatPublicationTypes(entry.paper.publicationTypes)}
+                                        Year: {entry.paper.publicationDate ? new Date(entry.paper.publicationDate).getFullYear() : 'Unknown'} | {formatPublicationTypes(entry.paper.publicationTypes)}
                                     </Typography>
                                     <Typography>Cited by: {entry.paper.citationCount}</Typography>
                                     {entry.paper.url && (

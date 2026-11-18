@@ -122,8 +122,25 @@ public class APIController {
 		for (JsonNode paperNode : fetchedPapers) {
 			String title = paperNode.get("title").asText();		
 			String paperId = paperNode.get("paperId").asText();			
-			// Failed or repeated searches can leave existing rows; reuse them instead of inserting duplicates.
-			if (researchPaperService.getReferenceBySemanticPaperId(paperId) != null) {
+			// Older or citation-created rows may be partial. Merge newly available search metadata.
+			ResearchPaper existingPaper = researchPaperService.getReferenceBySemanticPaperId(paperId);
+			if (existingPaper != null) {
+				if (title != null && !title.isBlank()) existingPaper.setTitle(title);
+				String abstractText = paperNode.path("abstract").asText("").trim();
+				if ((existingPaper.getAbstractText() == null || existingPaper.getAbstractText().isBlank()) && !abstractText.isBlank()) {
+					existingPaper.setAbstractText(abstractText);
+				}
+				if (existingPaper.getPublishedDate() == null) {
+					String publicationDate = paperNode.path("publicationDate").asText("");
+					if (!publicationDate.isBlank()) {
+						existingPaper.setPublishedDate(LocalDate.parse(publicationDate, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay());
+					}
+				}
+				String sourceLink = paperNode.path("openAccessPdf").path("url").asText("");
+				if (sourceLink.isBlank()) sourceLink = paperNode.path("url").asText("");
+				if (!sourceLink.isBlank()) existingPaper.setSourceLink(sourceLink);
+				if (paperNode.hasNonNull("citationCount")) existingPaper.setCitationsCount(paperNode.path("citationCount").asInt());
+				researchPaperService.updateResearchPaper(existingPaper.getPaperId(), existingPaper);
 				continue;
 			}
 
