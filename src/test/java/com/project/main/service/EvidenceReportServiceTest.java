@@ -2,6 +2,7 @@ package com.project.main.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,6 +20,7 @@ import com.project.main.enums.GraphType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
@@ -73,6 +75,30 @@ class EvidenceReportServiceTest {
         assertEquals("The abstracts indicate a relationship. [[SOURCE:p1]]", response.synthesis());
         assertEquals(List.of("p1"), response.claims().get(0).sourcePaperIds());
         assertEquals("USED", response.sourceCoverage().get(0).status());
+    }
+
+    @Test
+    void mapsCompactFallbackSourceKeysToExactPaperIdsBeforeValidatingAndReturning() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":[{\"text\":\"The U.S. group reports e.g. a 2.5-fold improvement.\",\"sourceKeys\":[\"S1\"]},"
+                        + "{\"text\":\"The second finding is reported.\",\"sourceKeys\":[\"S2\"]}],"
+                        + "\"claims\":[{\"text\":\"The first finding is reported.\",\"sourcePaperIds\":[\"p1\"]},"
+                        + "{\"text\":\"The second finding is reported.\",\"sourcePaperIds\":[\"p2\"]}],"
+                        + "\"sourceCoverage\":[{\"paperId\":\"p1\",\"status\":\"USED\",\"rationale\":\"The abstract supports the first finding.\"},"
+                        + "{\"paperId\":\"p2\",\"status\":\"USED\",\"rationale\":\"The abstract supports the second finding.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(8,
+                ReportType.EVIDENCE_SYNTHESIS, ReportScope.ALL, List.of("p1", "p2")));
+
+        assertEquals("The U.S. group reports e.g. a 2.5-fold improvement. [[SOURCE:p1]] The second finding is reported. [[SOURCE:p2]]",
+                response.synthesis());
+        assertEquals(List.of("p1", "p2"), response.sourceCoverage().stream().map(item -> item.paperId()).toList());
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(aiTextGateway).generateJson(prompt.capture());
+        assertTrue(prompt.getValue().contains("\"sourceKey\":\"S1\""));
+        assertTrue(prompt.getValue().contains("\"sourceKey\":\"S2\""));
     }
 
     @Test
@@ -239,6 +265,50 @@ class EvidenceReportServiceTest {
                 response.sources().get(0).citationPassages().get(0).passage());
         assertEquals(List.of("A. Citation"), response.sources().get(0).citationPassages().get(0).citingPaperAuthors());
         assertEquals(Integer.valueOf(2024), response.sources().get(0).citationPassages().get(0).citingPaperYear());
+    }
+
+    @Test
+    void citationReportMapsFallbackContextKeysToExactContextIds() {
+        when(reportSourceService.load(9)).thenReturn(new ReportSourceService.GraphSnapshot(9, GraphType.CITATION,
+                "Question", List.of(paper("focal", "", List.of())), Map.of()));
+        ObjectNode citation = mapper.createObjectNode();
+        citation.putArray("contexts").add("We extend the focal method with a broader evaluation.");
+        citation.putObject("citingPaper").put("paperId", "citing");
+        when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":[{\"text\":\"The passage describes an extension.\",\"contextKeys\":[\"C1\"]}],"
+                        + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"It describes an extension.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(9,
+                ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal")));
+
+        assertEquals("The passage describes an extension. [[CONTEXT:focal:citing:0]]", response.synthesis());
+        assertEquals("EXTENDS", response.citationAnalyses().get(0).relation());
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(aiTextGateway).generateJson(prompt.capture());
+        assertTrue(prompt.getValue().contains("\"contextKey\":\"C1\""));
+        assertTrue(prompt.getValue().contains("compact contextKey values"));
+    }
+
+    @Test
+    void rejectsCitationReportFallbackWithUnknownContextKey() {
+        when(reportSourceService.load(9)).thenReturn(new ReportSourceService.GraphSnapshot(9, GraphType.CITATION,
+                "Question", List.of(paper("focal", "", List.of())), Map.of()));
+        ObjectNode citation = mapper.createObjectNode();
+        citation.putArray("contexts").add("A real citation passage.");
+        citation.putObject("citingPaper").put("paperId", "citing");
+        when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":[{\"text\":\"The passage describes an extension.\",\"contextKeys\":[\"C99\"]}],"
+                        + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"It describes an extension.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(9,
+                        ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal"))));
+
+        assertEquals(502, exception.getStatusCode().value());
     }
 
     @Test

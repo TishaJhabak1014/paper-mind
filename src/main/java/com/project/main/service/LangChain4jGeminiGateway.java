@@ -30,6 +30,9 @@ public class LangChain4jGeminiGateway implements AiTextGateway {
     @Value("${app.rate-limit.gemini-interval-ms:4000}")
     private long minimumRequestIntervalMillis;
 
+    @Value("${app.ai.timeout-seconds:90}")
+    private long timeoutSeconds = 90;
+
     public LangChain4jGeminiGateway(ApiRateLimitService rateLimitService) {
         this.rateLimitService = rateLimitService;
     }
@@ -58,7 +61,9 @@ public class LangChain4jGeminiGateway implements AiTextGateway {
                         "Gemini could not generate the requested text. Please retry.", primaryFailure);
             }
             try {
-                return generateWithModel(fallbackModel, prompt, jsonResponse);
+                String response = generateWithModel(fallbackModel, prompt, jsonResponse);
+                logger.info("LangChain4j Gemini fallback model {} completed after primary model {} failed.", fallbackModel, model);
+                return response;
             } catch (RuntimeException fallbackFailure) {
                 logProviderFailure(fallbackModel, fallbackFailure);
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
@@ -85,8 +90,8 @@ public class LangChain4jGeminiGateway implements AiTextGateway {
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .maxRetries(0)
-                .timeout(Duration.ofSeconds(45));
-        if (jsonResponse) builder.responseFormat(ResponseFormat.JSON).maxOutputTokens(8192);
+                .timeout(Duration.ofSeconds(Math.max(1, timeoutSeconds)));
+        if (jsonResponse) builder.responseFormat(ResponseFormat.JSON).maxOutputTokens(4096);
         ChatModel chatModel = builder.build();
         return chatModel.chat(prompt);
     }

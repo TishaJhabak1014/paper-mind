@@ -1,6 +1,7 @@
 package com.project.main.service;
 
 import com.project.main.entity.CitationEdge;
+import com.project.main.entity.Graph;
 import com.project.main.entity.ResearchPaper;
 import com.project.main.repository.CitationEdgeRepo;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,7 +33,15 @@ class CitationEdgeServiceTests {
 
     @Test
     void testSaveCitationEdge_Success() {
-        CitationEdge citationEdge = new CitationEdge();
+        Graph graph = new Graph();
+        graph.setId(17);
+        ResearchPaper firstPaper = new ResearchPaper();
+        firstPaper.setPaperId(21);
+        firstPaper.setSemanticPaperId("first-paper");
+        ResearchPaper secondPaper = new ResearchPaper();
+        secondPaper.setPaperId(22);
+        secondPaper.setSemanticPaperId("second-paper");
+        CitationEdge citationEdge = new CitationEdge(graph, firstPaper, secondPaper);
         when(citationEdgeRepo.save(citationEdge)).thenReturn(citationEdge);
 
         CitationEdge result = citationEdgeService.saveCitationEdge(citationEdge);
