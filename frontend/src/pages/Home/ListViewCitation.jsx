@@ -3,7 +3,6 @@ import { CircularProgress, Container, Grid, Typography, TextField, MenuItem, Box
 import PaperListOpinion from '../../components/PaperListOpinion';
 import TopNavigation from '../../components/TopNavigation';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { api } from '../../api';
 import GraphProgressNotice from '../../components/GraphProgressNotice';
 import useCitationEnrichment from '../../hooks/useCitationEnrichment';
 import useOpinionEnrichment from '../../hooks/useOpinionEnrichment';
@@ -101,15 +100,6 @@ function ListViewCitation() {
     }
   }, [selectedYear, selectedAuthor, selectedType, graphPapers, paperSearch, sortOrder]);
 
-  const generateAISummary = async (paperId, abstract) => {
-    try {
-      const response = await api.post('/api/generate-summary', { paperId, abstract });
-      console.log('AI Summary:', response.data);
-    } catch (error) {
-      console.error('Error fetching AI summary:', error);
-    }
-  };
-
   if (isLoading) {
     return (
       <Container maxWidth="xl" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -204,7 +194,7 @@ function ListViewCitation() {
                 papers={filteredPapers} 
                 loadingCitationIds={loadingPaperIds}
                 failedCitationIds={failedPaperIds}
-                onGenerateSummaryClick={(paperId, abstract) => generateAISummary(paperId, abstract)} 
+                onGenerateSummaryClick={() => {}}
               />
             ) : (
               <Typography>No papers found.</Typography>
