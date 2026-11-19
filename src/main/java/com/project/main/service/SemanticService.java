@@ -92,7 +92,8 @@ public class SemanticService {
                 return ResponseEntity.ok(papersNode);
 
             } else {
-                return ResponseEntity.ok(objectMapper.createObjectNode().put("message", "No papers found for the query."));
+                // Keep the search response shape consistent: callers always receive a paper array.
+                return ResponseEntity.ok(objectMapper.createArrayNode());
             }
 
         } catch (Exception e) {

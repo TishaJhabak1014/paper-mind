@@ -72,7 +72,8 @@ public class SemanticServiceTests {
 
         assertNotNull(response);
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("No papers found for the query.", response.getBody().get("message").asText());
+        assertTrue(response.getBody().isArray());
+        assertTrue(response.getBody().isEmpty());
     }
 
     @Test

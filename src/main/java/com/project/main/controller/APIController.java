@@ -144,11 +144,28 @@ public class APIController {
 
 		if (fetchedPapers == null)
 			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("No semantic response (1) received.");
+		if (!fetchedPapers.isArray()) {
+			logger.warn("Semantic Scholar search returned a non-array response for prompt {}", userPrompt.getId());
+			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("Semantic Scholar returned an invalid paper list.");
+		}
+
+		// Provider records can be incomplete. Exclude entries without the identifiers needed
+		// by persistence and downstream graph construction instead of failing the whole search.
+		var validPapers = objectMapper.createArrayNode();
+		for (JsonNode paperNode : fetchedPapers) {
+			if (paperNode.isObject() && !paperNode.path("title").asText("").isBlank()
+					&& !paperNode.path("paperId").asText("").isBlank()) {
+				validPapers.add(paperNode);
+			} else {
+				logger.warn("Skipping incomplete Semantic Scholar paper record for prompt {}", userPrompt.getId());
+			}
+		}
+		fetchedPapers = validPapers;
 
 		// save all research papers
 		for (JsonNode paperNode : fetchedPapers) {
-			String title = paperNode.get("title").asText();		
-			String paperId = paperNode.get("paperId").asText();			
+			String title = paperNode.path("title").asText();
+			String paperId = paperNode.path("paperId").asText();
 
 			LocalDate publishedDate = null; // Initialize to null
 			if (paperNode.has("publicationDate") && !paperNode.get("publicationDate").isNull()) {
@@ -160,7 +177,7 @@ public class APIController {
 			}
 	
 			String abstractText = paperNode.path("abstract").asText("");
-			String sourceLink = paperNode.get("url").asText();
+			String sourceLink = paperNode.path("url").asText("");
 			if (paperNode.has("openAccessPdf") && paperNode.get("openAccessPdf").has("url")) {
 				sourceLink = paperNode.get("openAccessPdf").get("url").asText();
 			}
@@ -606,6 +623,22 @@ public class APIController {
 					.replaceAll("\\*|\\r|\\n", " ").trim();
 			if (text.isBlank()) {
 				return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(null);
+			}
+
+			// Gemini may follow the requested JSON shape instead of the legacy labeled text.
+			// Parse that shape before treating the entire response as search keywords.
+			try {
+				JsonNode structured = objectMapper.readTree(text);
+				if (structured != null && structured.isObject()
+						&& structured.path("keywords").isTextual()
+						&& !structured.path("keywords").asText().isBlank()) {
+					ObjectNode responseJson = objectMapper.createObjectNode();
+					responseJson.put("keywords", structured.path("keywords").asText().trim());
+					responseJson.put("sentiment", structured.path("sentiment").asText("unknown").trim());
+					return ResponseEntity.ok(responseJson);
+				}
+			} catch (Exception ignored) {
+				// Continue parsing the legacy `keywords: ...; sentiment: ...` format.
 			}
 
 			String lowerText = text.toLowerCase(java.util.Locale.ROOT);

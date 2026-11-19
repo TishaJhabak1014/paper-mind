@@ -269,6 +269,17 @@ public void testNotNullResponseFromResponseFormatting() throws Exception {
     }
 
     @Test
+    public void testResponseFormattingParsesGeminiJsonKeywords() throws Exception {
+        String geminiResponse = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"keywords\\\":\\\"life youth\\\",\\\"sentiment\\\":\\\"positive\\\"}\"}]}}]}";
+
+        ResponseEntity<ObjectNode> response = apiController.responseFormatting(geminiResponse);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("life youth", response.getBody().path("keywords").asText());
+        assertEquals("positive", response.getBody().path("sentiment").asText());
+    }
+
+    @Test
     public void testCategorizedResponseFormattingWithEmptyInput() throws Exception {
         String emptyJson = "{}"; 
 
