@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CircularProgress, Container, Grid, Typography, Modal, Box, IconButton, MenuItem, Select } from '@mui/material';
+import { CircularProgress, Container, Grid, Typography, Modal, Box, IconButton, MenuItem, Select, FormControl } from '@mui/material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PaperListOpinion from '../../components/PaperListOpinion';
 import TopNavigation from '../../components/TopNavigation';
@@ -241,21 +241,20 @@ function GraphViewOpinion() {
       opposing={opposing} 
       prompt={searchPrompt}
       graphId={location.state?.graphId} />
-      <Box sx={{ maxWidth: 1280, mx: 'auto', px: 2, py: 1, display: 'flex', justifyContent: 'flex-end' }}><EvidenceReportTool graphId={location.state?.graphId} /></Box>
-
-      {/* Dropdown for selecting opinions */}
-      <Box sx={{ position: 'absolute', top: '6rem', right: '2rem', display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ maxWidth: 1280, mx: 'auto', px: 2, py: 1, mb: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
         <Select
           value={viewMode}
           onChange={(e) => setViewMode(e.target.value)}
           displayEmpty
           inputProps={{ 'aria-label': 'Choose opinion view' }}
-          style={{ marginRight: '8px' }}
         >
           <MenuItem value="supporting">Supporting</MenuItem>
           <MenuItem value="opposing">Opposing</MenuItem>
           <MenuItem value="all">All Opinions</MenuItem>
         </Select>
+        </FormControl>
+        <EvidenceReportTool graphId={location.state?.graphId} />
       </Box>
 
       <Container maxWidth="xl">

@@ -2,10 +2,20 @@ import React, { useState } from 'react';
 import { Alert, Card, CardContent, IconButton, Link, Tooltip, Typography } from '@mui/material';
 import FileCopyIcon from '@mui/icons-material/FileCopy';
 import SaveIcon from '@mui/icons-material/Save';
-import { Document, Packer, Paragraph, TextRun } from 'docx';
+import { Document, ExternalHyperlink, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILE_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+export function buildSummaryCopyText({ title, authorYear, summary, includeAbstractNote, references }) {
+  return [
+    title,
+    includeAbstractNote ? 'This summary is based only on the available abstract, not the full paper.' : null,
+    authorYear,
+    summary,
+    references.length ? `References\n${references.map(reference => `${reference.label}: ${reference.url}`).join('\n')}` : null,
+  ].filter(Boolean).join('\n\n');
+}
 
 function PaperDetailOpinion({ paper }) {
   const summaryLabel = paper.summaryLabel || (paper.tldr?.text && !paper.abstract?.trim()
@@ -17,7 +27,19 @@ function PaperDetailOpinion({ paper }) {
     : paper.year || null;
   const landingPageUrl = paper.url || paper.landingPageUrl || null;
   const pdfUrl = paper.openAccessPdf?.url || paper.pdfUrl || null;
-  const reference = `${authors.length ? authors.join(', ') : 'Authors not supplied'}${year ? ` (${year})` : ' (year not supplied)'}. ${paper.title || 'Title not supplied'}.`;
+  const authorYear = `${authors.length ? authors.join(', ') : 'Authors not supplied'}${year ? ` (${year})` : ' (year not supplied)'}`;
+  const references = [
+    landingPageUrl && { label: 'Paper landing page', url: landingPageUrl },
+    pdfUrl && { label: 'Open-access PDF', url: pdfUrl },
+  ].filter(Boolean);
+  const includeAbstractNote = summaryLabel !== 'Semantic Scholar TLDR';
+  const copyText = buildSummaryCopyText({
+    title: paper.title || 'Untitled paper',
+    authorYear,
+    summary: paper.summary || '',
+    includeAbstractNote,
+    references,
+  });
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const [saving, setSaving] = useState(false);
   const [driveMessage, setDriveMessage] = useState('');
@@ -28,11 +50,19 @@ function PaperDetailOpinion({ paper }) {
       sections: [{
         properties: {},
         children: [
-          new Paragraph({ children: [new TextRun({ text: paper.title, bold: true, size: 28 })] }),
-          new Paragraph({ children: [new TextRun({ text: reference, size: 20 })] }),
-          new Paragraph({ children: [new TextRun({ text: '' })] }),
-          new Paragraph({ children: [new TextRun({ text: `${summaryLabel} (based only on the available abstract):`, bold: true, size: 24 })] }),
-          new Paragraph({ children: [new TextRun({ text: paper.summary, size: 22 })] }),
+          new Paragraph({ text: paper.title || 'Untitled paper', heading: HeadingLevel.HEADING_1 }),
+          ...(includeAbstractNote ? [new Paragraph({ children: [new TextRun({ text: 'This summary is based only on the available abstract, not the full paper.', italics: true, size: 20 })] })] : []),
+          new Paragraph({ children: [new TextRun({ text: authorYear, size: 20 })] }),
+          new Paragraph({ children: [new TextRun({ text: paper.summary || '', size: 22 })] }),
+          ...(references.length ? [
+            new Paragraph({ text: 'References', heading: HeadingLevel.HEADING_2 }),
+            ...references.map(reference => new Paragraph({
+              children: [new ExternalHyperlink({
+                link: reference.url,
+                children: [new TextRun({ text: reference.label, style: 'Hyperlink' })],
+              })],
+            })),
+          ] : []),
         ],
       }],
     });
@@ -102,8 +132,8 @@ function PaperDetailOpinion({ paper }) {
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(paper.summary);
-      setDriveMessage('Summary copied to clipboard.');
+      await navigator.clipboard.writeText(copyText);
+      setDriveMessage('Summary and references copied to clipboard.');
     } catch {
       setDriveMessage('Could not copy the summary. Check browser clipboard permissions.');
     }
@@ -112,15 +142,13 @@ function PaperDetailOpinion({ paper }) {
   return (
     <Card>
       <CardContent>
-        <Typography variant="h6" component="div">{summaryLabel} for {paper.title}</Typography>
-        {summaryLabel !== 'Semantic Scholar TLDR' && (
+        <Typography variant="h6" component="h2">{paper.title || 'Untitled paper'}</Typography>
+        {includeAbstractNote && (
           <Typography variant="caption" color="text.secondary" component="p">
             This summary is based only on the available abstract, not the full paper.
           </Typography>
         )}
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{reference}</Typography>
-        {landingPageUrl && <Link href={landingPageUrl} target="_blank" rel="noopener noreferrer">Open paper landing page</Link>}
-        {pdfUrl && <Typography variant="body2"><Link href={pdfUrl} target="_blank" rel="noopener noreferrer">Open open-access PDF</Link></Typography>}
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{authorYear}</Typography>
         <Typography variant="body2">{paper.summary}</Typography>
         <Tooltip title="Copy summary">
           <IconButton onClick={copyToClipboard} aria-label="Copy summary" sx={{ color: '#4287f5' }}>
