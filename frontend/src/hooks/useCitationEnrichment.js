@@ -3,11 +3,15 @@ import { api } from '../api';
 
 const SAMPLE_SIZE = 5;
 const pendingCitationRequests = new Map();
+let citationRequestQueue = Promise.resolve();
 
 function fetchPaperCitations(graphId, paperId) {
   const requestKey = `${graphId}:${paperId}`;
   if (!pendingCitationRequests.has(requestKey)) {
-    const request = (async () => {
+    // Keep the browser's citation requests in one queue. Each result still updates
+    // the graph/list as soon as it arrives, while a shared 429 cooldown cannot
+    // cause every in-flight paper request to retry at the same instant.
+    const queuedRequest = citationRequestQueue.then(async () => {
       for (let attempt = 0; ; attempt += 1) {
         try {
           const response = await api.get(`/api/data/citations/${graphId}/${encodeURIComponent(paperId)}`);
@@ -18,12 +22,15 @@ function fetchPaperCitations(graphId, paperId) {
           const message = typeof body === 'string' ? body : body?.message || '';
           const seconds = Number(message.match(/about\s+(\d+)\s+seconds?/i)?.[1]);
           const delay = Number.isFinite(seconds) && seconds > 0
-            ? Math.min(seconds, 60) * 1000
+            ? Math.min(seconds, 300) * 1000
             : 5000 * (attempt + 1);
           await new Promise(resolve => window.setTimeout(resolve, delay));
         }
       }
-    })()
+    });
+    // A failed request should not block later work in the queue.
+    citationRequestQueue = queuedRequest.then(() => undefined, () => undefined);
+    const request = queuedRequest
       .finally(() => pendingCitationRequests.delete(requestKey));
     pendingCitationRequests.set(requestKey, request);
   }
