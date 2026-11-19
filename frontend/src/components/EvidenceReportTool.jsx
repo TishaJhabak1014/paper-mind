@@ -106,7 +106,7 @@ export default function EvidenceReportTool({ graphId, onOpen, preset = null, pre
           {!!report.coverageGaps?.length && <Typography><b>Coverage gaps:</b> {report.coverageGaps.join(' ')}</Typography>}
           {!!report.limitations?.length && <Typography><b>Limitations:</b> {report.limitations.join(' ')}</Typography>}
         </> : <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Reports use PaperMind’s server-stored papers and classifications. Preview the exact focal papers before generation.</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Reports use PaperMind’s server-stored papers and classifications. Preview the selected papers before generation.</Typography>
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
             <FormControl fullWidth><InputLabel>Report type</InputLabel><Select label="Report type" value={type} disabled={!!preset} onChange={e => setType(e.target.value)}>{REPORT_TYPES.map(x => <MenuItem key={x.value} value={x.value}>{x.label}</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth><InputLabel>Scope</InputLabel><Select label="Scope" value={scope} disabled={!!preset} onChange={e => setScope(e.target.value)}>{(preview?.scopes || [{ scope: 'ALL', available: true }]).filter(x => x.available || x.scope === scope).map(x => <MenuItem key={x.scope} value={x.scope}>{x.scope[0] + x.scope.slice(1).toLowerCase()}</MenuItem>)}</Select></FormControl>

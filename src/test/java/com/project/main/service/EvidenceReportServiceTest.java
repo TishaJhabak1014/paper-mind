@@ -252,15 +252,16 @@ class EvidenceReportServiceTest {
         when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(citations));
         when(aiTextGateway.generateJson(anyString())).thenReturn(
                 "{\"synthesis\":\"One sampled passage extends the focal work. [[CONTEXT:focal:citing:0]]\","
-                        + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"It says the work is extended.\"}],"
+                        + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"It says the focal study is extended.\"}],"
                         + "\"coverageGaps\":[],\"limitations\":[]}");
 
         EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(9,
                 ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal")));
 
         assertEquals("Semantic Scholar citation passages", response.evidenceBasis());
-        assertEquals("One sampled passage extends the focal work. [[CONTEXT:focal:citing:0]]", response.synthesis());
+        assertEquals("One sampled passage extends the work. [[CONTEXT:focal:citing:0]]", response.synthesis());
         assertEquals("EXTENDS", response.citationAnalyses().get(0).relation());
+        assertEquals("It says the study is extended.", response.citationAnalyses().get(0).explanation());
         assertEquals("We extend the focal method with a broader evaluation.",
                 response.sources().get(0).citationPassages().get(0).passage());
         assertEquals(List.of("A. Citation"), response.sources().get(0).citationPassages().get(0).citingPaperAuthors());
@@ -289,6 +290,131 @@ class EvidenceReportServiceTest {
         verify(aiTextGateway).generateJson(prompt.capture());
         assertTrue(prompt.getValue().contains("\"contextKey\":\"C1\""));
         assertTrue(prompt.getValue().contains("compact contextKey values"));
+    }
+
+    @Test
+    void citationSynthesisUsesReaderFriendlyPaperNamesAndPrioritizesSubstantiveRelations() {
+        var sourcePaper = new ReportSourceService.PaperSource("focal", "QualiSpeech",
+                List.of("Wang", "A. Zhang"), 2025, "https://example.org/qualispeech", "");
+        when(reportSourceService.load(9)).thenReturn(new ReportSourceService.GraphSnapshot(9, GraphType.CITATION,
+                "Question", List.of(sourcePaper), Map.of()));
+        ObjectNode citation = mapper.createObjectNode();
+        citation.putArray("contexts").add("The citing study extends the named method.")
+                .add("The paper is mentioned, but the passage does not state a relation.");
+        citation.putObject("citingPaper").put("paperId", "citing").put("title", "Later Study");
+        when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":["
+                        + "{\"text\":\"QualiSpeech (Wang et al., 2025) extends the focal paper.\",\"contextKeys\":[\"C1\"]},"
+                        + "{\"text\":\"The focal dataset is mentioned without a clear relationship.\",\"contextKeys\":[\"C2\"]}],"
+                        + "\"analyses\":["
+                        + "{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"This focal study extends QualiSpeech.\"},"
+                        + "{\"contextId\":\"focal:citing:1\",\"relation\":\"UNCLEAR\",\"explanation\":\"The focal work's role is not clear.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(9,
+                ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal")));
+
+        assertEquals("QualiSpeech (Wang et al., 2025) extends the paper. [[CONTEXT:focal:citing:0]]",
+                response.synthesis());
+        assertEquals("This study extends QualiSpeech.", response.citationAnalyses().get(0).explanation());
+        assertEquals("The work's role is not clear.", response.citationAnalyses().get(1).explanation());
+        assertNoInternalFocalJargon(response.synthesis());
+        response.citationAnalyses().forEach(analysis -> assertNoInternalFocalJargon(analysis.explanation()));
+        assertFalseContains(response.coverageDescription(), "focal");
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(aiTextGateway).generateJson(prompt.capture());
+        String value = prompt.getValue();
+        assertTrue(value.contains("\"paperTitle\":\"QualiSpeech\""));
+        assertTrue(value.contains("\"paperAuthors\":[\"Wang\",\"A. Zhang\"]"));
+        assertTrue(value.contains("\"paperYear\":2025"));
+        assertTrue(value.contains("short title or an author-year form"));
+        assertTrue(value.contains("Exclude UNCLEAR passages from synthesis whenever any substantive relation is present"));
+        assertTrue(value.contains("exact compact contextKey values"));
+    }
+
+    @Test
+    void citationSynthesisIncludesUnclearPassagesWhenAllRelationsAreUnclear() {
+        when(reportSourceService.load(9)).thenReturn(new ReportSourceService.GraphSnapshot(9, GraphType.CITATION,
+                "Question", List.of(paper("focal", "", List.of())), Map.of()));
+        ObjectNode citation = mapper.createObjectNode();
+        citation.putArray("contexts").add("The passage does not clearly describe a relationship.");
+        citation.putObject("citingPaper").put("paperId", "citing");
+        when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":[{\"text\":\"The passage mentions the paper but does not establish a relation.\",\"contextKeys\":[\"C1\"]}],"
+                        + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"UNCLEAR\",\"explanation\":\"The relation is not clear from the passage.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(9,
+                ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal")));
+
+        assertEquals("The passage mentions the paper but does not establish a relation. [[CONTEXT:focal:citing:0]]",
+                response.synthesis());
+    }
+
+    @Test
+    void citationReportSplitsLargePassageSetsIntoSmallValidatedRequests() throws Exception {
+        when(reportSourceService.load(9)).thenReturn(new ReportSourceService.GraphSnapshot(9, GraphType.CITATION,
+                "Question", List.of(paper("focal", "", List.of())), Map.of()));
+        ObjectNode citation = mapper.createObjectNode();
+        ArrayNode contexts = citation.putArray("contexts");
+        for (int i = 0; i < 6; i++) contexts.add("Passage " + (i + 1) + " provides citation evidence.");
+        citation.putObject("citingPaper").put("paperId", "citing");
+        when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
+
+        List<String> firstBatchIds = java.util.stream.IntStream.range(0, 5)
+                .mapToObj(i -> "focal:citing:" + i).toList();
+        List<String> secondBatchIds = List.of("focal:citing:5");
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                citationBatchResponse(firstBatchIds, "SUPPORTS", "The passages support the named method."),
+                citationBatchResponse(secondBatchIds, "UNCLEAR", "The final passage mentions the paper."));
+
+        EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(9,
+                ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal")));
+
+        assertEquals(6, response.citationAnalyses().size());
+        assertEquals(6, response.sources().get(0).citationPassages().size());
+        assertEquals(1, response.synthesis().split("\\[\\[CONTEXT:").length - 1,
+                "UNCLEAR-only content should be omitted when substantive relations are available.");
+        assertTrue(response.synthesis().contains("[[CONTEXT:focal:citing:0]]"));
+        assertFalseContains(response.synthesis(), "focal:citing:5");
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(aiTextGateway, org.mockito.Mockito.times(2)).generateJson(prompt.capture());
+        assertTrue(prompt.getAllValues().get(0).contains("\"contextKey\":\"C5\""));
+        assertFalseContains(prompt.getAllValues().get(0), "focal:citing:5");
+        assertTrue(prompt.getAllValues().get(1).contains("\"contextKey\":\"C1\""));
+        assertTrue(prompt.getAllValues().get(1).contains("focal:citing:5"));
+    }
+
+    private String citationBatchResponse(List<String> contextIds, String relation, String sentence) throws Exception {
+        ObjectNode response = mapper.createObjectNode();
+        ArrayNode synthesis = response.putArray("synthesis");
+        ObjectNode sentenceNode = synthesis.addObject();
+        sentenceNode.put("text", sentence);
+        sentenceNode.putArray("contextKeys").add("C1");
+        ArrayNode analyses = response.putArray("analyses");
+        for (String contextId : contextIds) {
+            analyses.addObject().put("contextId", contextId).put("relation", relation)
+                    .put("explanation", "The passage describes this relation.");
+        }
+        response.putArray("coverageGaps");
+        response.putArray("limitations");
+        return mapper.writeValueAsString(response);
+    }
+
+    private void assertNoInternalFocalJargon(String value) {
+        assertFalseContains(value, "focal paper");
+        assertFalseContains(value, "focal work");
+        assertFalseContains(value, "focal study");
+        assertFalseContains(value, "focal dataset");
+    }
+
+    private void assertFalseContains(String value, String forbidden) {
+        assertTrue(!value.toLowerCase(java.util.Locale.ROOT).contains(forbidden.toLowerCase(java.util.Locale.ROOT)),
+                "Unexpected internal wording: " + forbidden);
     }
 
     @Test
