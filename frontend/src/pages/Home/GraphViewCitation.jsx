@@ -31,7 +31,7 @@ function GraphViewCitation() {
   const [highlightedPaperId, setHighlightedPaperId] = useState(null);
   const { citations, completed: citationProgress, total: citationTotal, loading: citationsLoading, failed: citationsFailed, loadingPaperIds, failedPaperIds, retryFailed: retryCitationLoads } =
     useCitationEnrichment(location.state?.graphId, papersForEnrichment, location.state?.citations || {});
-  const { supporting, opposing, status: opinionStatus } = useOpinionEnrichment(
+  const { supporting, opposing, status: opinionStatus, errorMessage: opinionError, retry: retryOpinions } = useOpinionEnrichment(
     location.state?.graphId,
     location.state?.prompt || '',
     papersForEnrichment,
@@ -39,6 +39,9 @@ function GraphViewCitation() {
     location.state?.opposing || {},
   );
   const [isLoading, setIsLoading] = useState(true);
+  useEffect(() => {
+    if (opinionStatus !== 'complete' && viewType !== 'ALL') setViewType('ALL');
+  }, [opinionStatus, viewType]);
 
   // Capitalize words function
   const capitalizeWords = (str) => {
@@ -334,7 +337,8 @@ function GraphViewCitation() {
         {citationsLoading && <GraphProgressNotice message={`Loading citation connections (${citationProgress} of ${citationTotal})…`} progress={{ completed: citationProgress, total: citationTotal }} />}
         {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}
         {opinionStatus === 'loading' && <GraphProgressNotice message="Grouping papers by supporting and opposing findings…" />}
-        {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion filters are unavailable. All papers and citation links remain available." error />}
+        {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
+        {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All papers remain available without opinion labels." warning />}
 
         {/* Dropdown for switching between ALL, SUPPORTING, OPPOSING */}
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
@@ -345,8 +349,8 @@ function GraphViewCitation() {
               displayEmpty
             >
               <MenuItem value="ALL">All</MenuItem>
-              <MenuItem value="SUPPORTING">Supporting</MenuItem>
-              <MenuItem value="OPPOSING">Opposing</MenuItem>
+              <MenuItem value="SUPPORTING" disabled={opinionStatus !== 'complete'}>Supporting</MenuItem>
+              <MenuItem value="OPPOSING" disabled={opinionStatus !== 'complete'}>Opposing</MenuItem>
             </Select>
           </FormControl>
         </Box>

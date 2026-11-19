@@ -88,5 +88,37 @@ class CategorizedResponseParsingTest {
         var response = controller.categorizedResponseFormatting("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"supporting\\\":\\\"truncated\"}]}}]}");
 
         assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertTrue(response.getBody().path("message").asText().contains("No labels were applied"));
+    }
+
+    @Test
+    void acceptsValidEmptyClassificationAsNoConfidentLabels() {
+        APIController controller = new APIController();
+
+        var response = controller.categorizedResponseFormatting("{\"supporting\":{},\"opposing\":{}}");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().path("supporting").isObject());
+        assertEquals(0, response.getBody().path("opposing").size());
+    }
+
+    @Test
+    void emptyGeminiCandidateReturnsHelpfulBadGatewayBody() {
+        APIController controller = new APIController();
+
+        var response = controller.categorizedResponseFormatting("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" \"}]}}]}");
+
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertTrue(response.getBody().path("message").asText().contains("No labels were applied"));
+    }
+
+    @Test
+    void rejectsNonArrayGroupValuesWithHelpfulErrorBody() {
+        APIController controller = new APIController();
+
+        var response = controller.categorizedResponseFormatting("{\"supporting\":{\"group\":\"p1\"},\"opposing\":{}}");
+
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertTrue(response.getBody().path("message").asText().contains("No labels were applied"));
     }
 }

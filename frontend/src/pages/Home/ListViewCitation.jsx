@@ -27,7 +27,7 @@ function ListViewCitation() {
   const [searchPrompt, setSearchPrompt] = useState('');
   const { citations, completed: citationProgress, total: citationTotal, loading: citationsLoading, failed: citationsFailed, loadingPaperIds, failedPaperIds, retryFailed: retryCitationLoads } =
     useCitationEnrichment(location.state?.graphId, Array.isArray(location.state?.papers) ? location.state.papers : [], location.state?.citations || {});
-  const { supporting, opposing, status: opinionStatus } = useOpinionEnrichment(
+  const { supporting, opposing, status: opinionStatus, errorMessage: opinionError, retry: retryOpinions } = useOpinionEnrichment(
     location.state?.graphId,
     location.state?.prompt || '',
     Array.isArray(location.state?.papers) ? location.state.papers : [],
@@ -132,7 +132,8 @@ function ListViewCitation() {
         {citationsLoading && <GraphProgressNotice message={`Loading citation connections (${citationProgress} of ${citationTotal})…`} progress={{ completed: citationProgress, total: citationTotal }} />}
         {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}
         {opinionStatus === 'loading' && <GraphProgressNotice message="Grouping papers by supporting and opposing findings…" />}
-        {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion filters are unavailable. All papers remain available." error />}
+        {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
+        {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All papers remain available without opinion labels." warning />}
         <Grid container spacing={3}>
           {/* Filters on the left with fixed positioning */}
           <Grid item xs={3} style={{ position: 'fixed', top: '100px', left: 0, height: '80vh', overflowY: 'auto' }}>

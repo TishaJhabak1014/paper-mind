@@ -17,7 +17,7 @@ function GraphViewOpinion() {
   const [isLoading, setIsLoading] = useState(true);  // Start as loading is true
   const [viewType, setViewType] = useState('');
   const papersForEnrichment = location.state?.graphPapers || (Array.isArray(location.state?.papers) ? location.state.papers : location.state?.papers?.Papers) || [];
-  const { supporting, opposing, status: opinionStatus } = useOpinionEnrichment(
+  const { supporting, opposing, status: opinionStatus, errorMessage: opinionError, retry: retryOpinions } = useOpinionEnrichment(
     location.state?.graphId,
     location.state?.prompt || '',
     papersForEnrichment,
@@ -25,6 +25,9 @@ function GraphViewOpinion() {
     location.state?.opposing || {},
   );
   const [viewMode, setViewMode] = useState('supporting');
+  useEffect(() => {
+    if (opinionStatus !== 'complete' && viewMode !== 'all') setViewMode('all');
+  }, [opinionStatus, viewMode]);
   const networkRef = useRef(null);
   const [openModal, setOpenModal] = useState(false);
   const [modalContent, setModalContent] = useState([]);
@@ -203,7 +206,7 @@ function GraphViewOpinion() {
   }, [isLoading, viewMode, supporting, opposing, graphPapers]);  // Depend on isLoading
 
   const getPapers = () => {
-    if (opinionStatus === 'loading' || opinionStatus === 'failed') return graphPapers;
+    if (opinionStatus !== 'complete') return graphPapers;
     if (viewMode === 'supporting') {
       return graphPapers.filter((paper) => Object.values(supporting).flat().includes(paper.paperId));
     } else if (viewMode === 'opposing') {
@@ -249,8 +252,8 @@ function GraphViewOpinion() {
           displayEmpty
           inputProps={{ 'aria-label': 'Choose opinion view' }}
         >
-          <MenuItem value="supporting">Supporting</MenuItem>
-          <MenuItem value="opposing">Opposing</MenuItem>
+          <MenuItem value="supporting" disabled={opinionStatus !== 'complete'}>Supporting</MenuItem>
+          <MenuItem value="opposing" disabled={opinionStatus !== 'complete'}>Opposing</MenuItem>
           <MenuItem value="all">All Opinions</MenuItem>
         </Select>
         </FormControl>
@@ -282,7 +285,8 @@ function GraphViewOpinion() {
               {viewMode.charAt(0).toUpperCase() + viewMode.slice(1)} Opinions Graph
             </Typography>
             {opinionStatus === 'loading' && <GraphProgressNotice message="Papers are ready. Grouping their findings into an opinion graph…" />}
-            {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion grouping could not be completed. The paper list is still available." error />}
+            {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
+            {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All papers remain available without opinion labels." warning />}
             <div
               ref={networkRef}
               style={{

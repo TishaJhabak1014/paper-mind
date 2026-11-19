@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 
 const pendingOpinionRequests = new Map();
@@ -17,7 +17,8 @@ export default function useOpinionEnrichment(graphId, prompt, papers, initialSup
   const [supporting, setSupporting] = useState(initialSupporting || {});
   const [opposing, setOpposing] = useState(initialOpposing || {});
   const [status, setStatus] = useState(graphId && !hasOpinions(initialSupporting, initialOpposing) ? 'loading' : 'complete');
-  const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [retryVersion, setRetryVersion] = useState(0);
   const papersKey = (papers || []).map(paper => paper.paperId).filter(Boolean).join(',');
 
   useEffect(() => {
@@ -30,29 +31,30 @@ export default function useOpinionEnrichment(graphId, prompt, papers, initialSup
 
     let cancelled = false;
     setStatus('loading');
-    setError(false);
+    setErrorMessage('');
     fetchOpinionGroups(graphId, prompt, papers)
       .then(result => {
         if (!cancelled) {
           setSupporting(result?.supporting || {});
           setOpposing(result?.opposing || {});
-          setStatus('complete');
+          setStatus(hasOpinions(result?.supporting, result?.opposing) ? 'complete' : 'unavailable');
         }
       })
       .catch(requestError => {
         console.error('Could not classify paper opinions:', requestError);
         if (!cancelled) {
           setStatus('failed');
-          setError(true);
+          setErrorMessage(requestError?.response?.data?.message || 'Opinion classification could not be completed. No labels were applied; all retrieved papers remain available.');
         }
       });
 
     return () => { cancelled = true; };
-  }, [graphId, prompt, papersKey]);
+  }, [graphId, prompt, papersKey, retryVersion]);
 
-  return { supporting, opposing, status, error };
+  const retry = useCallback(() => setRetryVersion(version => version + 1), []);
+  return { supporting, opposing, status, errorMessage, retry };
 }
 
 function hasOpinions(supporting, opposing) {
-  return Object.keys(supporting || {}).length > 0 || Object.keys(opposing || {}).length > 0;
+  return [supporting, opposing].some(groups => Object.values(groups || {}).some(ids => Array.isArray(ids) && ids.length > 0));
 }

@@ -33,7 +33,7 @@ function ListViewOpinion() {
     const papersForEnrichment = Array.isArray(location.state?.papers)
         ? location.state.papers
         : location.state?.graphPapers || location.state?.papers?.Papers || [];
-    const { supporting: supportPapers, opposing: opposingPapers, status: opinionStatus } = useOpinionEnrichment(
+    const { supporting: supportPapers, opposing: opposingPapers, status: opinionStatus, errorMessage: opinionError, retry: retryOpinions } = useOpinionEnrichment(
         location.state?.graphId,
         location.state?.prompt || searchPrompt,
         papersForEnrichment,
@@ -202,8 +202,8 @@ function ListViewOpinion() {
                 </Typography>
                 <br />
                 {opinionStatus === 'loading' && <GraphProgressNotice message="Papers are ready. Grouping them by supporting and opposing findings…" />}
-                {opinionStatus === 'failed' && <GraphProgressNotice message="Opinion grouping could not be completed. The retrieved papers are still available." error />}
-                {opinionStatus === 'loading' && <PaperListOpinion papers={graphPapers} onGenerateSummaryClick={() => {}} />}
+                {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
+                {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All retrieved papers remain available without opinion labels." warning />}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
                     <TextField label="Search papers" placeholder="Title, author, opinion, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} size="small" sx={{ minWidth: 260, flex: 1 }} />
                     <TextField select label="Year" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} size="small" sx={{ minWidth: 130 }}>
@@ -216,7 +216,7 @@ function ListViewOpinion() {
                         <MenuItem value="newest">Newest first</MenuItem><MenuItem value="oldest">Oldest first</MenuItem>
                     </TextField>
                 </Box>
-                <Grid container spacing={3}>
+                {opinionStatus !== 'complete' ? <PaperListOpinion papers={graphPapers} onGenerateSummaryClick={() => {}} /> : <Grid container spacing={3}>
                     <Grid item xs={12} md={6}>
                         <Typography variant="h6" fontWeight="light" fontSize="16px">Supporting Papers</Typography>
                         {visibleSupportingPapers.length > 0 ? (
@@ -339,7 +339,7 @@ function ListViewOpinion() {
                         )}
                         {shownOpposingPapers.length < visibleOpposingPapers.length && <Button size="small" onClick={() => setOpposingVisibleCount(count => count + 5)}>Show next 5 opposing papers</Button>}
                     </Grid>
-                </Grid>
+                </Grid>}
             </Container>
         </div>
     );

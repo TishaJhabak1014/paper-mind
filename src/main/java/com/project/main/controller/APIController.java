@@ -313,9 +313,9 @@ public class APIController {
 		// gemini (2): tuned_prompt for top 20 papers, sort them by support/oppose, and get the summarized opinions
 		String opinionPrompt = String.format(
 				"Here is the user's opinionated prompt: '%s' and a JSON list of relevant research papers: '%s',"
-				 + "I need you to sort the list of papers into 2 categories either 'supporting' or 'opposing' the user-prompt;" 
-				 + "then under supporting or opposing categories, further categorizes the papers by summarizing the key opinions, and list papers with that opinion under that key opinion"
-				 + "strucutre response like a JSON object without any formatting (must to be able to be parsed directly so no invalid characters) that may look like: 'supporting: {opinion1: [paper1ID, paper2ID...], opinion2: [paper3ID...], ...}, opposing: {opinion1: [paper4ID], opinion2: [paper5ID...], ...}'"
+				 + "Classify only when supplied title/abstract evidence shows a finding directly supports or challenges the query; topic relevance alone is not a stance. "
+				 + "Leave papers unclassified when evidence is missing, ambiguous, mixed, or insufficient. Do not force every paper into a category or put an ID in both. Use only supplied paper IDs. "
+				 + "Return strict JSON with supporting and opposing objects whose values are arrays of paper ID strings, using concise evidence-based group labels."
 				 , userPrompt.getSearchPrompt(), fetchedPapers);
 
 		String categorizedResponseBody = geminiService.callApi(opinionPrompt, apiKey);
@@ -457,9 +457,10 @@ public class APIController {
 			String prompt = requestBody.path("prompt").asText("");
 			JsonNode papers = requestBody.path("papers");
 			String opinionPrompt = String.format(
-					"Classify each supplied search-result paper against the user's research question. "
-					+ "Group IDs under supporting or opposing, with concise group labels of at most 8 words. "
-					+ "Include each supplied paperId exactly once when possible; do not invent IDs. "
+					"Classify supplied papers against the user's research question using only evidence in their supplied titles and abstracts. "
+					+ "A paper is supporting or opposing only when its described findings directly support or challenge the question. Mentioning the topic or being relevant is not enough. "
+					+ "Leave papers unclassified when evidence is missing, ambiguous, mixed, or insufficient; do not force every paper into a group. Never put a paper in both groups. "
+					+ "Use concise group labels of at most 8 words and only supplied paperId values. "
 					+ "Return only an object with supporting and opposing objects whose values are arrays of paperId strings. "
 					+ "Question: %s\nPapers JSON: %s",
 					prompt, papers);
@@ -473,9 +474,10 @@ public class APIController {
 			String prompt = requestBody.path("prompt").asText("");
 			JsonNode papers = requestBody.path("papers");
 			String retryPrompt = String.format(
-					"Classify each supplied search-result paper against the user's research question. "
-					+ "Group IDs under supporting or opposing, with concise group labels of at most 8 words. "
-					+ "Include each supplied paperId exactly once when possible; do not invent IDs. "
+					"Classify supplied papers against the user's research question using only evidence in their supplied titles and abstracts. "
+					+ "A paper is supporting or opposing only when its described findings directly support or challenge the question. Mentioning the topic or being relevant is not enough. "
+					+ "Leave papers unclassified when evidence is missing, ambiguous, mixed, or insufficient; do not force every paper into a group. Never put a paper in both groups. "
+					+ "Use concise group labels of at most 8 words and only supplied paperId values. "
 					+ "Return only an object with supporting and opposing objects whose values are arrays of paperId strings. "
 					+ "Question: %s\nPapers JSON: %s", prompt, papers);
 			categorizedResponseBody = geminiService.callApi(retryPrompt, apiKey);
@@ -484,7 +486,10 @@ public class APIController {
 		ObjectNode categorized = formatted == null || !formatted.getStatusCode().is2xxSuccessful() ? null : formatted.getBody();
 		if (categorized == null) {
 			logger.warn("Could not parse Gemini opinion classification for graph {}. A retry may regenerate the classification.", graphId);
-			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+			ObjectMapper errorMapper = new ObjectMapper();
+			ObjectNode error = errorMapper.createObjectNode();
+			error.put("message", "Opinion classification returned an empty or invalid response. No labels were applied; retry classification later.");
+			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(error);
 		}
 		if (appResponse != null && (!alreadyClassified || categorizedResponseBody != null)) {
 			try {
@@ -548,10 +553,23 @@ public class APIController {
 			if (!isCategorizedResponse(categorized)) {
 				String textNode = rootNode.path("candidates").path(0).path("content").path("parts").path(0).path("text").asText("");
 				textNode = textNode.trim().replaceFirst("(?s)^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "").trim();
-				if (textNode.isBlank()) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+				if (textNode.isBlank()) return invalidOpinionResponse(mapper);
 				categorized = mapper.readTree(textNode);
 			}
-			if (!isCategorizedResponse(categorized)) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+			if (!isCategorizedResponse(categorized)) return invalidOpinionResponse(mapper);
+
+			for (String category : List.of("supporting", "opposing")) {
+				JsonNode groups = categorized.path(category);
+				if (!groups.isMissingNode() && !groups.isObject()) return invalidOpinionResponse(mapper);
+				if (groups.isObject()) {
+					for (Map.Entry<String, JsonNode> group : ((ObjectNode) groups).properties()) {
+						if (group.getKey().isBlank() || !group.getValue().isArray()) return invalidOpinionResponse(mapper);
+						for (JsonNode id : group.getValue()) {
+							if (!id.isTextual() || id.asText().isBlank()) return invalidOpinionResponse(mapper);
+						}
+					}
+				}
+			}
 			ObjectNode normalized = mapper.createObjectNode();
 		normalized.set("supporting", categorized.path("supporting").isObject()
 				? categorized.path("supporting") : mapper.createObjectNode());
@@ -561,9 +579,15 @@ public class APIController {
 
 		} catch (Exception e) {
 			logger.warn("Gemini opinion output was malformed JSON ({}).", e.getClass().getSimpleName());
-			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+			return invalidOpinionResponse(new ObjectMapper());
         }
     }
+
+	private ResponseEntity<ObjectNode> invalidOpinionResponse(ObjectMapper mapper) {
+		ObjectNode error = mapper.createObjectNode();
+		error.put("message", "Opinion classification returned an empty or invalid response. No labels were applied; retry classification later.");
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(error);
+	}
 
 	private boolean isCategorizedResponse(JsonNode node) {
 		return node != null && node.isObject()
