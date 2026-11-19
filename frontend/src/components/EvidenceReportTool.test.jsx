@@ -30,13 +30,14 @@ describe('evidence report setup', () => {
         reportType: 'EVIDENCE_SYNTHESIS',
         scope: 'ALL',
         researchQuestion: 'Research question',
-        synthesis: 'An abstract-based synthesis.',
+        synthesis: 'An abstract-based synthesis. [[SOURCE:p1]]',
         evidenceBasis: 'Abstract-based synthesis',
-        claims: [],
+        claims: [{ text: 'The paper reports an improvement.', sourcePaperIds: ['p1'], caveat: 'Abstract only.' }],
+        sourceCoverage: [{ paperId: 'p1', status: 'USED', rationale: 'Supports the reported improvement.' }],
         citationAnalyses: [],
         coverageGaps: [],
         limitations: [],
-        sources: [],
+        sources: [{ paperId: 'p1', title: 'Example Paper', authors: ['A. Author'], year: 2020, sourceUrl: 'https://example.org/p1', hasAbstract: true, classifications: [], citationPassages: [] }],
         coverageDescription: 'One stored abstract.',
       } });
     });
@@ -52,6 +53,15 @@ describe('evidence report setup', () => {
       scope: 'ALL',
       includedPaperIds: ['p1'],
     }));
-    expect(await screen.findByText('An abstract-based synthesis.')).toBeInTheDocument();
+    expect(await screen.findByText(/An abstract-based synthesis\./)).toBeInTheDocument();
+    const inlineSynthesisReferences = screen.getAllByRole('link', { name: '[A. Author, 2020]' });
+    expect(inlineSynthesisReferences).toHaveLength(2);
+    inlineSynthesisReferences.forEach(reference => expect(reference).toHaveAttribute('href', 'https://example.org/p1'));
+    expect(screen.getByText(/The paper reports an improvement\./).parentElement.querySelector('a'))
+      .toHaveAttribute('href', 'https://example.org/p1');
+    expect(screen.getByText(/Supports the reported improvement\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'A. Author, 2020' })).toHaveAttribute('href', 'https://example.org/p1');
+    expect(screen.getByRole('button', { name: 'Copy report' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save to Google Drive' })).toBeInTheDocument();
   });
 });

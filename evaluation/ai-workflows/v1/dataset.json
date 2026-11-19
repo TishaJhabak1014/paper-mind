@@ -1,0 +1,74 @@
+{
+  "dataset": "papermind-ai-workflows",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "source": "Synthetic original fixtures authored for PaperMind workflow evaluation; no third-party paper text is included.",
+  "annotationPolicy": "No relevance, stance, or citation-relation gold labels have been assigned. Every candidate is marked UNREVIEWED. Reviewers must record evidence and provenance before metrics are computed.",
+  "examples": [
+    {
+      "id": "opinion-rag-factuality-v1",
+      "mode": "OPINION",
+      "researchQuestion": "Does retrieval-augmented generation improve factual accuracy in question answering?",
+      "provenance": {
+        "textOrigin": "Synthetic title and abstract written for this fixture.",
+        "annotationOrigin": "Unreviewed; no labels assigned.",
+        "stableIdentifiers": "Fixture-local paper IDs; not Semantic Scholar IDs."
+      },
+      "candidates": [
+        {
+          "paperId": "fixture:rag-factuality-supporting",
+          "title": "Synthetic Study of Retrieval Evidence and Unsupported Claims",
+          "abstract": "In a controlled synthetic evaluation, adding retrieved passages reduced answers that asserted claims absent from the evidence. The improvement was largest when passages directly addressed the question.",
+          "judgment": { "relevanceGrade": null, "stance": null, "status": "UNREVIEWED", "evidenceNote": null }
+        },
+        {
+          "paperId": "fixture:rag-factuality-mixed",
+          "title": "Synthetic Evaluation of Retrieval-Augmented Question Answering Across Domains",
+          "abstract": "Retrieval augmentation improved answer support on some domains but had little effect when retrieved passages were incomplete or off topic. Aggregate factuality changes depended on retrieval coverage.",
+          "judgment": { "relevanceGrade": null, "stance": null, "status": "UNREVIEWED", "evidenceNote": null }
+        },
+        {
+          "paperId": "fixture:ceramic-catalysts",
+          "title": "Synthetic Measurements of Porous Ceramic Catalysts Under Thermal Cycling",
+          "abstract": "This synthetic materials study compares catalyst pore stability and reaction yield under repeated heating. It does not evaluate question answering or language models.",
+          "judgment": { "relevanceGrade": null, "stance": null, "status": "UNREVIEWED", "evidenceNote": null }
+        }
+      ]
+    },
+    {
+      "id": "citation-calibration-domain-shift-v1",
+      "mode": "CITATION",
+      "researchQuestion": "How do later studies use or challenge confidence calibration methods under domain shift?",
+      "provenance": {
+        "textOrigin": "Synthetic focal-paper descriptions and citation passages written for this fixture.",
+        "annotationOrigin": "Unreviewed; no relevance, relation, or stance labels assigned.",
+        "stableIdentifiers": "Fixture-local focal and citing paper IDs; not external corpus identifiers."
+      },
+      "focalPaper": {
+        "paperId": "fixture:calibration-transfer-method",
+        "title": "Synthetic Confidence Calibration Transfer Under Dataset Shift",
+        "abstract": "The synthetic focal study proposes transferring a calibration mapping from a source dataset to a shifted target domain and reports improved expected calibration error in two controlled settings."
+      },
+      "citationCandidates": [
+        {
+          "citingPaperId": "fixture:calibration-extension",
+          "citingPaperTitle": "Synthetic Extension of Calibration Transfer to Streaming Data",
+          "passage": "We extend the transfer mapping with periodic updates as the target stream changes.",
+          "judgment": { "relevanceGrade": null, "relation": null, "status": "UNREVIEWED", "evidenceNote": null }
+        },
+        {
+          "citingPaperId": "fixture:calibration-challenge",
+          "citingPaperTitle": "Synthetic Reassessment of Calibration Under Severe Shift",
+          "passage": "Under severe label shift, the transferred mapping did not improve calibration over the unadjusted baseline in our experiments.",
+          "judgment": { "relevanceGrade": null, "relation": null, "status": "UNREVIEWED", "evidenceNote": null }
+        },
+        {
+          "citingPaperId": "fixture:unrelated-bibliography-mention",
+          "citingPaperTitle": "Synthetic Survey of Evaluation Practices",
+          "passage": "The transfer-calibration study appears in the background bibliography; this passage makes no claim about its method or findings.",
+          "judgment": { "relevanceGrade": null, "relation": null, "status": "UNREVIEWED", "evidenceNote": null }
+        }
+      ]
+    }
+  ]
+}

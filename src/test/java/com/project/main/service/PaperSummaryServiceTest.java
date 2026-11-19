@@ -65,13 +65,66 @@ class PaperSummaryServiceTest {
     @Test
     void refusesToSummarizeWhenNoServerAbstractExists() {
         when(researchPaperService.getResearchPaperBySemanticPaperId("paper-2"))
-                .thenReturn(new ResearchPaper("paper-2", "Example", null, " ", null, null, 0, 0));
+                .thenReturn(new ResearchPaper("paper-2", "Example", null, "\n \t", null, null, 0, 0));
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> paperSummaryService.summarize("paper-2"));
 
         assertEquals(422, exception.getStatusCode().value());
         verify(aiTextGateway, never()).generate(anyString());
+    }
+
+    @Test
+    void refusesMissingAbstractsWithoutCallingModel() {
+        when(researchPaperService.getResearchPaperBySemanticPaperId("paper-missing"))
+                .thenReturn(new ResearchPaper("paper-missing", "Example", null, null, null, null, 0, 0));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> paperSummaryService.summarize("paper-missing"));
+
+        assertEquals(422, exception.getStatusCode().value());
+        verify(aiTextGateway, never()).generate(anyString());
+    }
+
+    @Test
+    void providerFailureIsReturnedAsBadGateway() {
+        when(researchPaperService.getResearchPaperBySemanticPaperId("paper-error"))
+                .thenReturn(new ResearchPaper("paper-error", "Example", null, "Stored abstract", null, null, 0, 0));
+        when(cacheService.get(anyString())).thenReturn(null);
+        when(aiTextGateway.generate(anyString())).thenThrow(new IllegalStateException("provider unavailable"));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> paperSummaryService.summarize("paper-error"));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void emptyModelResponseIsRejectedAndNotCached() {
+        when(researchPaperService.getResearchPaperBySemanticPaperId("paper-empty"))
+                .thenReturn(new ResearchPaper("paper-empty", "Example", null, "Stored abstract", null, null, 0, 0));
+        when(cacheService.get(anyString())).thenReturn(null);
+        when(aiTextGateway.generate(anyString())).thenReturn(" \n ");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> paperSummaryService.summarize("paper-empty"));
+
+        assertEquals(502, exception.getStatusCode().value());
+        verify(cacheService, never()).put(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void nullModelResponseIsRejectedAndNotCached() {
+        when(researchPaperService.getResearchPaperBySemanticPaperId("paper-null"))
+                .thenReturn(new ResearchPaper("paper-null", "Example", null, "Stored abstract", null, null, 0, 0));
+        when(cacheService.get(anyString())).thenReturn(null);
+        when(aiTextGateway.generate(anyString())).thenReturn(null);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> paperSummaryService.summarize("paper-null"));
+
+        assertEquals(502, exception.getStatusCode().value());
+        verify(cacheService, never()).put(anyString(), anyString(), any(Duration.class));
     }
 
     @Test

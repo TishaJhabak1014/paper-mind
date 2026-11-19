@@ -61,22 +61,133 @@ class EvidenceReportServiceTest {
     void synthesisValidatesEveryClaimSourceAgainstIncludedAbstracts() {
         when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
         when(aiTextGateway.generateJson(anyString())).thenReturn(
-                "{\"synthesis\":\"The abstracts indicate a relationship.\","
+                "{\"synthesis\":\"The abstracts indicate a relationship. [[SOURCE:p1]]\","
                         + "\"claims\":[{\"text\":\"The first paper reports a link.\",\"sourcePaperIds\":[\"p1\"],\"caveat\":\"Abstract only.\"}],"
+                        + "\"sourceCoverage\":[{\"paperId\":\"p1\",\"status\":\"USED\",\"rationale\":\"Supports the reported relationship.\"}],"
                         + "\"coverageGaps\":[],\"limitations\":[\"Abstract-only evidence.\"]}");
 
         EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(8,
                 ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1")));
 
         assertEquals("Abstract-based synthesis", response.evidenceBasis());
+        assertEquals("The abstracts indicate a relationship. [[SOURCE:p1]]", response.synthesis());
         assertEquals(List.of("p1"), response.claims().get(0).sourcePaperIds());
+        assertEquals("USED", response.sourceCoverage().get(0).status());
+    }
+
+    @Test
+    void rejectsEvidenceReportThatDoesNotAccountForEverySelectedAbstract() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":\"The first paper reports a link. [[SOURCE:p1]]\","
+                        + "\"claims\":[{\"text\":\"The first paper reports a link.\",\"sourcePaperIds\":[\"p1\"]}],"
+                        + "\"sourceCoverage\":[],\"coverageGaps\":[],\"limitations\":[]}");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
     }
 
     @Test
     void rejectsModelClaimThatCitesPaperOutsideSelectedScope() {
         when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
         when(aiTextGateway.generateJson(anyString())).thenReturn(
-                "{\"synthesis\":\"Claim.\",\"claims\":[{\"text\":\"Claim.\",\"sourcePaperIds\":[\"p2\"]}],\"coverageGaps\":[],\"limitations\":[]}");
+                "{\"synthesis\":\"Claim. [[SOURCE:p1]]\",\"claims\":[{\"text\":\"Claim.\",\"sourcePaperIds\":[\"p2\"]}],\"coverageGaps\":[],\"limitations\":[]}");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void rejectsSynthesisMarkerOutsideSelectedSourceManifest() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":\"Claim [[SOURCE:p2]]\",\"claims\":[],\"coverageGaps\":[],\"limitations\":[]}");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void rejectsSynthesisSentenceWithoutItsOwnSourceMarker() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":\"The first paper reports a link. [[SOURCE:p1]] A second claim is unsupported.\","
+                        + "\"claims\":[{\"text\":\"The first paper reports a link.\",\"sourcePaperIds\":[\"p1\"]}],"
+                        + "\"sourceCoverage\":[{\"paperId\":\"p1\",\"status\":\"USED\",\"rationale\":\"Supports the link.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void acceptsAbbreviationsAndDecimalsInsideCitedSynthesisSentences() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":\"Prior work by Smith et al. describes U.S. results, e.g. a 2.5-fold effect, i.e. the main finding. [[SOURCE:p1]]\","
+                        + "\"claims\":[{\"text\":\"The abstract reports the effect.\",\"sourcePaperIds\":[\"p1\"]}],"
+                        + "\"sourceCoverage\":[{\"paperId\":\"p1\",\"status\":\"USED\",\"rationale\":\"The abstract reports that effect.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
+
+        EvidenceReportResponse response = evidenceReportService.generate(new ReportGenerateRequest(8,
+                ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1")));
+
+        assertEquals("Prior work by Smith et al. describes U.S. results, e.g. a 2.5-fold effect, i.e. the main finding. [[SOURCE:p1]]",
+                response.synthesis());
+    }
+
+    @Test
+    void rejectsMalformedEvidenceReportJson() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn("{not valid JSON");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void rejectsEmptyEvidenceReportResponse() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn("  ");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void rejectsNullEvidenceReportResponse() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenReturn(null);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(8,
+                        ReportType.EVIDENCE_SYNTHESIS, ReportScope.SUPPORTING, List.of("p1"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void mapsEvidenceReportProviderFailureToBadGateway() {
+        when(reportSourceService.load(8)).thenReturn(opinionSnapshot());
+        when(aiTextGateway.generateJson(anyString())).thenThrow(new IllegalStateException("provider unavailable"));
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> evidenceReportService.generate(new ReportGenerateRequest(8,
@@ -107,12 +218,14 @@ class EvidenceReportServiceTest {
         citation.putArray("contexts").add("We extend the focal method with a broader evaluation.");
         citation.putArray("intents").add("extends");
         citation.put("isInfluential", true);
-        citation.putObject("citingPaper").put("paperId", "citing").put("title", "Citing Paper")
-                .put("url", "https://example.org/citing");
+        ObjectNode citingPaper = citation.putObject("citingPaper").put("paperId", "citing").put("title", "Citing Paper");
+        citingPaper.put("url", "https://example.org/citing");
+        citingPaper.put("publicationDate", "2024-05-20");
+        citingPaper.putArray("authors").addObject().put("name", "A. Citation");
         ArrayNode citations = mapper.createArrayNode().add(citation);
         when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(citations));
         when(aiTextGateway.generateJson(anyString())).thenReturn(
-                "{\"synthesis\":\"One sampled passage extends the focal work.\","
+                "{\"synthesis\":\"One sampled passage extends the focal work. [[CONTEXT:focal:citing:0]]\","
                         + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"EXTENDS\",\"explanation\":\"It says the work is extended.\"}],"
                         + "\"coverageGaps\":[],\"limitations\":[]}");
 
@@ -120,9 +233,12 @@ class EvidenceReportServiceTest {
                 ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal")));
 
         assertEquals("Semantic Scholar citation passages", response.evidenceBasis());
+        assertEquals("One sampled passage extends the focal work. [[CONTEXT:focal:citing:0]]", response.synthesis());
         assertEquals("EXTENDS", response.citationAnalyses().get(0).relation());
         assertEquals("We extend the focal method with a broader evaluation.",
                 response.sources().get(0).citationPassages().get(0).passage());
+        assertEquals(List.of("A. Citation"), response.sources().get(0).citationPassages().get(0).citingPaperAuthors());
+        assertEquals(Integer.valueOf(2024), response.sources().get(0).citationPassages().get(0).citingPaperYear());
     }
 
     @Test
@@ -134,7 +250,28 @@ class EvidenceReportServiceTest {
         citation.putObject("citingPaper").put("paperId", "citing");
         when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
         when(aiTextGateway.generateJson(anyString())).thenReturn(
-                "{\"synthesis\":\"Some analysis.\",\"analyses\":[{\"contextId\":\"made-up\",\"relation\":\"SUPPORTS\",\"explanation\":\"Unsupported.\"}],\"coverageGaps\":[],\"limitations\":[]}");
+                "{\"synthesis\":\"Some analysis. [[CONTEXT:focal:citing:0]]\",\"analyses\":[{\"contextId\":\"made-up\",\"relation\":\"SUPPORTS\",\"explanation\":\"Unsupported.\"}],\"coverageGaps\":[],\"limitations\":[]}");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> evidenceReportService.generate(new ReportGenerateRequest(9,
+                        ReportType.CITATION_CONTEXT, ReportScope.ALL, List.of("focal"))));
+
+        assertEquals(502, exception.getStatusCode().value());
+    }
+
+    @Test
+    void rejectsCitationReportThatOmitsASampledPassage() {
+        when(reportSourceService.load(9)).thenReturn(new ReportSourceService.GraphSnapshot(9, GraphType.CITATION,
+                "Question", List.of(paper("focal", "", List.of())), Map.of()));
+        ObjectNode citation = mapper.createObjectNode();
+        citation.putArray("contexts").add("First passage supports the method.")
+                .add("Second passage challenges the result.");
+        citation.putObject("citingPaper").put("paperId", "citing");
+        when(semanticService.citationSearch("focal")).thenReturn(ResponseEntity.ok(mapper.createArrayNode().add(citation)));
+        when(aiTextGateway.generateJson(anyString())).thenReturn(
+                "{\"synthesis\":\"The first passage supports the method. [[CONTEXT:focal:citing:0]]\","
+                        + "\"analyses\":[{\"contextId\":\"focal:citing:0\",\"relation\":\"SUPPORTS\",\"explanation\":\"It says so.\"}],"
+                        + "\"coverageGaps\":[],\"limitations\":[]}");
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> evidenceReportService.generate(new ReportGenerateRequest(9,

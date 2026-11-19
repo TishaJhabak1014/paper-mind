@@ -11,6 +11,7 @@ public record EvidenceReportResponse(
         String synthesis,
         String evidenceBasis,
         List<ReportClaimDto> claims,
+        List<SourceCoverageDto> sourceCoverage,
         List<CitationAnalysisDto> citationAnalyses,
         List<String> coverageGaps,
         List<String> limitations,

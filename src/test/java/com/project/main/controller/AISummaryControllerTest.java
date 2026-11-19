@@ -58,4 +58,15 @@ class AISummaryControllerTest {
                         .content("{\"paperId\":\"paper-2\"}"))
                 .andExpect(status().is(422));
     }
+
+    @Test
+    void returnsProviderFailureForValidJsonRequest() throws Exception {
+        when(paperSummaryService.summarize("paper-3")).thenThrow(new ResponseStatusException(
+                HttpStatus.BAD_GATEWAY, "The AI service could not generate an abstract summary. Please retry."));
+
+        mockMvc.perform(post("/api/generate-summary")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paperId\":\"paper-3\"}"))
+                .andExpect(status().isBadGateway());
+    }
 }

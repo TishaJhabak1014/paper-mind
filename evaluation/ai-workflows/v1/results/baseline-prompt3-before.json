@@ -1,0 +1,186 @@
+{
+  "harnessVersion": "1.0.0",
+  "mode": "offline",
+  "dataset": "papermind-ai-workflows",
+  "datasetVersion": "1.0.0",
+  "networkRequests": 0,
+  "qualityMetrics": {
+    "precisionAt5": null,
+    "recallAt5": null,
+    "ndcgAt5": null,
+    "stanceMacroF1": null,
+    "citationRelationMacroF1": null,
+    "reason": "The dataset has no human-reviewed relevance, stance, or citation-relation judgments."
+  },
+  "summaryReportContractChecks": {
+    "fixtureOnly": true,
+    "summary": {
+      "validJsonRequest": {
+        "passed": true
+      },
+      "missingAbstract": {
+        "expectedStatus": 422,
+        "providerCalled": false
+      },
+      "blankAbstract": {
+        "expectedStatus": 422,
+        "providerCalled": false
+      },
+      "providerError": {
+        "expectedStatus": 502
+      },
+      "malformedProviderOutput": {
+        "expectedStatus": 502
+      },
+      "emptyProviderResponse": {
+        "expectedStatus": 502
+      },
+      "successfulResponse": {
+        "expectedStatus": 200,
+        "validResponseShape": true
+      }
+    },
+    "reportSourceIds": {
+      "knownSourceAndContextAccepted": {
+        "valid": true,
+        "invalidSourceIds": [],
+        "invalidContextIds": [],
+        "validatedSourceCount": 1,
+        "validatedContextCount": 1
+      },
+      "unknownSourceRejected": {
+        "valid": false,
+        "invalidSourceIds": [
+          "fixture:invented"
+        ],
+        "invalidContextIds": [],
+        "validatedSourceCount": 1,
+        "validatedContextCount": 0
+      }
+    }
+  },
+  "examples": [
+    {
+      "exampleId": "opinion-rag-factuality-v1",
+      "mode": "OPINION",
+      "offlineFixtureOnly": true,
+      "selection": {
+        "candidateCount": 3,
+        "selectedCount": 3,
+        "selectedIds": [
+          "fixture:rag-factuality-supporting",
+          "fixture:rag-factuality-mixed",
+          "fixture:ceramic-catalysts"
+        ],
+        "duplicateCount": 0,
+        "paperLimit": 20,
+        "withinPaperLimit": true
+      },
+      "searchMetrics": {
+        "precisionAtK": null,
+        "recallAtK": null,
+        "ndcgAtK": null
+      },
+      "summaryChecks": [
+        {
+          "paperId": "fixture:rag-factuality-supporting",
+          "abstractAvailable": true,
+          "fixtureSummaryNonEmpty": true,
+          "fixtureOnly": true
+        },
+        {
+          "paperId": "fixture:rag-factuality-mixed",
+          "abstractAvailable": true,
+          "fixtureSummaryNonEmpty": true,
+          "fixtureOnly": true
+        },
+        {
+          "paperId": "fixture:ceramic-catalysts",
+          "abstractAvailable": true,
+          "fixtureSummaryNonEmpty": true,
+          "fixtureOnly": true
+        },
+        {
+          "paperId": "fixture:missing-abstract-contract-case",
+          "abstractAvailable": false,
+          "summaryGenerated": false,
+          "expectedStatus": 422,
+          "fixtureOnly": true
+        }
+      ],
+      "reportSourceValidation": {
+        "valid": true,
+        "invalidSourceIds": [],
+        "invalidContextIds": [],
+        "validatedSourceCount": 3,
+        "validatedContextCount": 0
+      },
+      "classificationQuality": {
+        "reviewedJudgmentCount": 0,
+        "macroF1": null,
+        "reason": "No human-reviewed stance labels are present in this dataset version."
+      },
+      "citationRelationQuality": {
+        "reviewedJudgmentCount": 0,
+        "macroF1": null,
+        "reason": "No human-reviewed citation-relation labels are present in this dataset version."
+      }
+    },
+    {
+      "exampleId": "citation-calibration-domain-shift-v1",
+      "mode": "CITATION",
+      "offlineFixtureOnly": true,
+      "selection": {
+        "candidateCount": 3,
+        "selectedCount": 1,
+        "selectedIds": [
+          "fixture:calibration-transfer-method"
+        ],
+        "duplicateCount": 0,
+        "paperLimit": 20,
+        "withinPaperLimit": true
+      },
+      "searchMetrics": {
+        "precisionAtK": null,
+        "recallAtK": null,
+        "ndcgAtK": null
+      },
+      "summaryChecks": [
+        {
+          "paperId": "fixture:calibration-transfer-method",
+          "abstractAvailable": true,
+          "fixtureSummaryNonEmpty": true,
+          "fixtureOnly": true
+        },
+        {
+          "paperId": "fixture:missing-abstract-contract-case",
+          "abstractAvailable": false,
+          "summaryGenerated": false,
+          "expectedStatus": 422,
+          "fixtureOnly": true
+        }
+      ],
+      "reportSourceValidation": {
+        "valid": true,
+        "invalidSourceIds": [],
+        "invalidContextIds": [],
+        "validatedSourceCount": 1,
+        "validatedContextCount": 3
+      },
+      "classificationQuality": {
+        "reviewedJudgmentCount": 0,
+        "macroF1": null,
+        "reason": "No human-reviewed stance labels are present in this dataset version."
+      },
+      "citationRelationQuality": {
+        "reviewedJudgmentCount": 0,
+        "macroF1": null,
+        "reason": "No human-reviewed citation-relation labels are present in this dataset version."
+      }
+    }
+  ],
+  "limitations": [
+    "Offline outputs are deterministic fixture simulations used to exercise the harness; they are not PaperMind model outputs or quality scores.",
+    "Fixture-local IDs cannot be matched to live Semantic Scholar results."
+  ]
+}

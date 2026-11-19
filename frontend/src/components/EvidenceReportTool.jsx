@@ -80,6 +80,17 @@ export default function EvidenceReportTool({ graphId, onOpen, preset = null, pre
               {claim.caveat && <Typography variant="body2" color="text.secondary">{claim.caveat}</Typography>}
             </Box>)}
           </>}
+          {!!report.sourceCoverage?.length && <>
+            <Typography variant="h6" sx={{ mt: 2 }}>Selected paper coverage</Typography>
+            {report.sourceCoverage.map(item => {
+              const ref = reportReferences.get(`SOURCE:${item.paperId}`);
+              return <Typography key={item.paperId} variant="body2" sx={{ mb: 0.75 }}>
+                {item.status === 'USED' ? 'Used' : 'Omitted'}: {ref?.url
+                  ? <a href={ref.url} target="_blank" rel="noreferrer">{ref.label}</a>
+                  : (ref?.label || item.paperId)} — {item.rationale}
+              </Typography>;
+            })}
+          </>}
           {!!report.citationAnalyses?.length && report.citationAnalyses.map((citation, i) => {
             const passage = passageSources.get(citation.contextId);
             const ref = reportReferences.get(`CONTEXT:${citation.contextId}`);

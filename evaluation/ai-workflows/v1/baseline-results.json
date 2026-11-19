@@ -1,0 +1,81 @@
+{
+  "dataset": "papermind-ai-workflows",
+  "datasetVersion": "1.0.0",
+  "baselineCommit": "c18e974",
+  "recordedAt": "2026-11-19",
+  "status": "PARTIAL_RUNTIME_BASELINE_BLOCKED",
+  "scope": "Current repository behavior before any change to model prompts or ranking/selection logic.",
+  "observations": {
+    "paperSearch": {
+      "requestEndpoint": "Semantic Scholar Academic Graph /graph/v1/paper/search/bulk",
+      "searchTextOrigin": "Legacy Gemini keyword extraction from the user's research question.",
+      "semanticScholarRelevanceOrder": false,
+      "reason": "PaperMind calls the bulk-search endpoint. It sends no sort parameter; the documented bulk endpoint default is paperId ascending and is intended for bulk retrieval without search relevance.",
+      "paperMindCandidateLimit": 20,
+      "paperMindSelection": "If more than 20 candidates are returned, choose the first encountered paper for each publication type, then fill remaining slots in upstream order. This changes the upstream order and can privilege publication types.",
+      "citationModeOrdering": "After selection, APIController sorts the selected list by citationCount descending. ListViewCitation also initially sorts by citation count; users may change the client-side sort.",
+      "opinionModeOrdering": "No citation-count sort in the initial API response. ListViewOpinion sorts by publication year (newest first) by default.",
+      "sourceAuditOnly": true
+    },
+    "classification": {
+      "providerPath": "GeminiService (direct Gemini REST call), not LangChain4jGeminiGateway.",
+      "input": "The user's research question and selected search-result paper JSON.",
+      "outputLabels": ["supporting", "opposing"],
+      "rankingEffect": "No relevance ranking is produced; the output groups paper IDs and affects opinion graph categories/filtering.",
+      "sourceAuditOnly": true
+    },
+    "abstractSummary": {
+      "providerPath": "PaperSummaryService -> AiTextGateway -> LangChain4jGeminiGateway.",
+      "evidence": "Abstract text on the server-stored ResearchPaper; no full-paper reading is implied.",
+      "responseShape": "JSON object {paperId, summary, basis}; summary itself is non-empty plain text, not JSON generated content.",
+      "noAbstractBehavior": "HTTP 422; model is not called.",
+      "emptySummaryBehavior": "HTTP 502; empty output is not cached."
+    },
+    "reports": {
+      "providerPath": "EvidenceReportService -> AiTextGateway.generateJson -> LangChain4jGeminiGateway with JSON response format.",
+      "evidenceSynthesis": "Selected server-stored abstracts and optional server-stored supporting/opposing classifications.",
+      "citationContext": "Semantic Scholar contexts sampled from up to five focal papers and up to five citing papers per focal paper.",
+      "providerFailureBehavior": "Gateway may retry with configured fallback model; unresolved failures surface as service-unavailable. Invalid/empty report JSON is rejected as bad gateway.",
+      "sourceAuditOnly": true
+    }
+  },
+  "evaluation": {
+    "examples": 2,
+    "relevanceJudgments": 0,
+    "stanceJudgments": 0,
+    "citationRelationJudgments": 0,
+    "metrics": {
+      "precisionAt10": null,
+      "ndcgAt10": null,
+      "stanceMacroF1": null,
+      "citationRelationMacroF1": null,
+      "summaryFactuality": null
+    },
+    "metricStatus": "NOT_COMPUTED",
+    "reason": "The fixture's annotations are explicitly unreviewed, so quality metrics would be fabricated without a human-reviewed gold set."
+  },
+  "runtimeAttempts": {
+    "frontendTests": { "status": "PASSED", "testFiles": 3, "tests": 5, "command": "frontend: npm test" },
+    "backendTests": {
+      "status": "BLOCKED_BEFORE_TEST_EXECUTION",
+      "attempts": [
+        "Gradle wrapper could not download Gradle because network access was denied.",
+        "Repo-local Gradle cache run could not find a Java 17 toolchain; only Java 20/21 are installed.",
+        "A temporary, uncommitted Gradle init script targeted installed JDK 21, but compilation was blocked by OS AccessDeniedException when Gradle read cached dependency jars, including spring-aspects and logback-classic."
+      ],
+      "sourceChangesForAttempt": "None; the temporary init script is under ignored build/ and no build.gradle change was made."
+    },
+    "liveSystem": {
+      "status": "NOT_RUN",
+      "semanticScholarCalls": 0,
+      "geminiCalls": 0,
+      "reason": "Docker daemon access was denied, so the backend/database/Redis stack could not be started. No live requests were sent."
+    }
+  },
+  "semanticScholarApiDocumentation": "https://api.semanticscholar.org/api-docs/",
+  "limitations": [
+    "The search/relevance and model classification behavior has not been measured against runtime outputs.",
+    "The dataset is small, synthetic, and unreviewed; it is a fixture for later evaluation, not evidence of product quality.",
+    "No model prompt or ranking/selection logic was changed during this audit."
+  ]
+}
