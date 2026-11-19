@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Select, Typography } from '@mui/material';
 import { api } from '../api';
+import ReportExportActions, { getReportReferences, InlineReferences } from './ReportExportActions';
 
 const REPORT_TYPES = [
   { value: 'EVIDENCE_SYNTHESIS', label: 'Evidence synthesis' },
@@ -54,8 +55,9 @@ export default function EvidenceReportTool({ graphId, onOpen, preset = null, pre
     catch (e) { setError(typeof e.response?.data === 'string' ? e.response.data : 'Report generation failed. Please retry.'); }
     finally { setBusy(false); }
   };
+
   const candidates = preview?.candidates || [];
-  const sourceLabels = new Map(candidates.map(p => [p.paperId, p.title]));
+  const reportReferences = getReportReferences(report);
   const passageSources = new Map((report?.sources || []).flatMap(source => (source.citationPassages || []).map(passage => [passage.contextId, { ...passage, focalTitle: source.title }])));
 
   return <>
@@ -65,9 +67,31 @@ export default function EvidenceReportTool({ graphId, onOpen, preset = null, pre
       <DialogContent dividers>
         {report ? <>
           <Alert severity="info" sx={{ mb: 2 }}>{report.evidenceBasis} {report.coverageDescription}</Alert>
-          <Typography variant="h6">Synthesis</Typography><Typography paragraph sx={{ whiteSpace: 'pre-wrap' }}>{report.synthesis}</Typography>
-          {!!report.claims?.length && <><Typography variant="h6">Evidence claims</Typography>{report.claims.map((claim, i) => <Box key={i} sx={{ mb: 1 }}><Typography>{claim.text}</Typography>{claim.caveat && <Typography variant="body2" color="text.secondary">{claim.caveat}</Typography>}<Typography variant="caption" color="text.secondary">Sources: {claim.sourcePaperIds.map(id => sourceLabels.get(id) || id).join('; ')}</Typography></Box>)}</>}
-          {!!report.citationAnalyses?.length && <>{report.citationAnalyses.map((citation, i) => { const passage = passageSources.get(citation.contextId); return <Box key={i} sx={{ my: 2 }}><Typography fontWeight="bold">{citation.relation}: {passage?.citingPaperTitle || citation.contextId}</Typography><Typography>{citation.explanation}</Typography>{passage && <><Typography variant="caption" color="text.secondary">Cites: {passage.focalTitle}</Typography><Typography variant="body2" color="text.secondary">“{passage.passage}”</Typography>{passage.citingPaperUrl && <a href={passage.citingPaperUrl} target="_blank" rel="noreferrer">Open citing paper</a>}</>}</Box>; })}</>}
+          <Typography variant="h6">Synthesis</Typography>
+          <Typography paragraph sx={{ whiteSpace: 'pre-wrap' }}><InlineReferences text={report.synthesis} refs={reportReferences} /></Typography>
+          {!!report.claims?.length && <>
+            <Typography variant="h6">Evidence claims</Typography>
+            {report.claims.map((claim, i) => <Box key={i} sx={{ mb: 1 }}>
+              <Typography>{claim.text}{claim.sourcePaperIds?.map(id => {
+                const ref = reportReferences.get(`SOURCE:${id}`);
+                if (!ref) return null;
+                return <React.Fragment key={id}> {ref.url ? <a href={ref.url} target="_blank" rel="noreferrer">[{ref.label}]</a> : `[${ref.label}]`}</React.Fragment>;
+              })}</Typography>
+              {claim.caveat && <Typography variant="body2" color="text.secondary">{claim.caveat}</Typography>}
+            </Box>)}
+          </>}
+          {!!report.citationAnalyses?.length && report.citationAnalyses.map((citation, i) => {
+            const passage = passageSources.get(citation.contextId);
+            const ref = reportReferences.get(`CONTEXT:${citation.contextId}`);
+            return <Box key={i} sx={{ my: 2 }}>
+              <Typography fontWeight="bold">{citation.relation}</Typography>
+              <Typography>{citation.explanation}{ref && <> {ref.url ? <a href={ref.url} target="_blank" rel="noreferrer">[{ref.label}]</a> : `[${ref.label}]`}</>}</Typography>
+              {passage && <>
+                <Typography variant="caption" color="text.secondary">Cites: {passage.focalTitle}</Typography>
+                <Typography variant="body2" color="text.secondary">&ldquo;{passage.passage}&rdquo;</Typography>
+              </>}
+            </Box>;
+          })}
           {!!report.coverageGaps?.length && <Typography><b>Coverage gaps:</b> {report.coverageGaps.join(' ')}</Typography>}
           {!!report.limitations?.length && <Typography><b>Limitations:</b> {report.limitations.join(' ')}</Typography>}
         </> : <>
@@ -86,14 +110,20 @@ export default function EvidenceReportTool({ graphId, onOpen, preset = null, pre
               return <Box key={paper.paperId} sx={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid', borderColor: 'divider', py: 1 }}>
                 <Checkbox checked={included.includes(paper.paperId)} disabled={!eligible} onChange={e => setIncluded(ids => e.target.checked ? [...ids, paper.paperId] : ids.filter(id => id !== paper.paperId))} />
                 <Box><Typography>{paper.sourceUrl ? <a href={paper.sourceUrl} target="_blank" rel="noreferrer">{paper.title}</a> : paper.title}</Typography><Typography variant="caption" color="text.secondary">{[paper.authors?.join(', '), paper.year, !eligible ? (type === 'CITATION_CONTEXT' ? 'No citation passage available' : 'No stored abstract') : paper.classifications?.join(', ')].filter(Boolean).join(' · ')}</Typography>
-                  {type === 'CITATION_CONTEXT' && paper.citationPassages?.map((passage, i) => <Typography key={i} variant="body2" sx={{ mt: 0.5 }}>“{passage.passage}”</Typography>)}
+                  {type === 'CITATION_CONTEXT' && paper.citationPassages?.map((passage, i) => <Typography key={i} variant="body2" sx={{ mt: 0.5 }}>&ldquo;{passage.passage}&rdquo;</Typography>)}
                 </Box>
               </Box>;
             })}
           </>}
         </>}
       </DialogContent>
-      <DialogActions><Button onClick={() => setOpen(false)}>{report ? 'Close' : 'Cancel'}</Button>{!report && <Button variant="contained" onClick={generate} disabled={busy || !preview?.canGenerate || !included.length}>Generate report</Button>}</DialogActions>
+      <DialogActions sx={{ justifyContent: report ? 'space-between' : 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+        {report && <ReportExportActions report={report} />}
+        <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
+          <Button onClick={() => setOpen(false)}>{report ? 'Close' : 'Cancel'}</Button>
+          {!report && <Button variant="contained" onClick={generate} disabled={busy || !preview?.canGenerate || !included.length}>Generate report</Button>}
+        </Box>
+      </DialogActions>
     </Dialog>
   </>;
 }

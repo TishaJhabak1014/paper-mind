@@ -7,6 +7,8 @@ public record CitationPassageDto(
         String focalPaperId,
         String citingPaperId,
         String citingPaperTitle,
+        List<String> citingPaperAuthors,
+        Integer citingPaperYear,
         String passage,
         String citingPaperUrl,
         List<String> intents,
