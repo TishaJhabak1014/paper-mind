@@ -23,7 +23,7 @@ public class TokenResponse {
     @JoinColumn(name="prompt_id", referencedColumnName = "id", nullable=false)
     private UserPrompt userPrompt;
 
-    @Column(name="processed_prompt")
+    @Column(name="processed_prompt", columnDefinition = "text")
     private String processedPrompt;
 
     @Column(name="generated_response", length = 1024)

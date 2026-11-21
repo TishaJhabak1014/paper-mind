@@ -3,9 +3,9 @@ import { api } from '../api';
 
 const pendingOpinionRequests = new Map();
 
-function fetchOpinionGroups(graphId, prompt, papers) {
+function fetchOpinionGroups(graphId, prompt, papers, force = false) {
   if (!pendingOpinionRequests.has(graphId)) {
-    const request = api.post('/api/data/opinions', { graphId, prompt, papers })
+    const request = api.post('/api/data/opinions', { graphId, prompt, papers, force })
       .then(response => response.data)
       .finally(() => pendingOpinionRequests.delete(graphId));
     pendingOpinionRequests.set(graphId, request);
@@ -32,7 +32,7 @@ export default function useOpinionEnrichment(graphId, prompt, papers, initialSup
     let cancelled = false;
     setStatus('loading');
     setErrorMessage('');
-    fetchOpinionGroups(graphId, prompt, papers)
+    fetchOpinionGroups(graphId, prompt, papers, retryVersion > 0)
       .then(result => {
         if (!cancelled) {
           setSupporting(result?.supporting || {});

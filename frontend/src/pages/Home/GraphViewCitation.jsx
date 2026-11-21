@@ -338,7 +338,7 @@ function GraphViewCitation() {
         {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}
         {opinionStatus === 'loading' && <GraphProgressNotice message="Grouping papers by supporting and opposing findings…" />}
         {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
-        {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All papers remain available without opinion labels." warning />}
+        {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers were grouped on the first pass. All papers remain available; retry classification if relevant evidence was missed." warning actionLabel="Retry classification" onAction={retryOpinions} />}
 
         {/* Dropdown for switching between ALL, SUPPORTING, OPPOSING */}
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>

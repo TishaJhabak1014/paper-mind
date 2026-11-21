@@ -286,7 +286,7 @@ function GraphViewOpinion() {
             </Typography>
             {opinionStatus === 'loading' && <GraphProgressNotice message="Papers are ready. Grouping their findings into an opinion graph…" />}
             {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
-            {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All papers remain available without opinion labels." warning />}
+            {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers were grouped on the first pass. All papers remain available; retry classification if relevant evidence was missed." warning actionLabel="Retry classification" onAction={retryOpinions} />}
             <div
               ref={networkRef}
               style={{

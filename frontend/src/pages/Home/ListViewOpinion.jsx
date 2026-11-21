@@ -203,7 +203,7 @@ function ListViewOpinion() {
                 <br />
                 {opinionStatus === 'loading' && <GraphProgressNotice message="Papers are ready. Grouping them by supporting and opposing findings…" />}
                 {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
-                {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All retrieved papers remain available without opinion labels." warning />}
+                {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers were grouped on the first pass. All papers remain available; retry classification if relevant evidence was missed." warning actionLabel="Retry classification" onAction={retryOpinions} />}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
                     <TextField label="Search papers" placeholder="Title, author, opinion, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} size="small" sx={{ minWidth: 260, flex: 1 }} />
                     <TextField select label="Year" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} size="small" sx={{ minWidth: 130 }}>

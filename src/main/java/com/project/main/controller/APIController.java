@@ -41,6 +41,7 @@ import java.util.Comparator;
 @RequestMapping("/api/data")
 public class APIController {
 	private static final Logger logger = LoggerFactory.getLogger(APIController.class);
+	private static final int OPINION_CLASSIFICATION_VERSION = 2;
 
 	@ExceptionHandler(ResponseStatusException.class)
 	public ResponseEntity<String> handleProviderException(ResponseStatusException exception) {
@@ -108,7 +109,8 @@ public class APIController {
 		 * must structure response like this: "keywords:keyword1, keyword2 etc.; sentiment:positive/negative;"
 		 */
 		String formattedPrompt = String.format(
-				"extract key words and determine positive or negative sentiment for statement '%s', only keep neural terms (non-sentimental terms) as keywords; must structure response like this: 'keywords:keyword1, keyword2 etc.; sentiment:positive/negative;'",
+				"Extract concise, broad research-search keywords from the user's question. Correct obvious spelling errors and preserve the core topic and claim direction so the results can include papers with supporting and opposing evidence. Do not add stance filters or narrow the query to one side. "
+				+ "Return strict JSON with exactly these string fields: keywords and sentiment.\nQuestion: %s",
 				userPrompt.getSearchPrompt());
 
 		String responseBody = geminiService.callApi(formattedPrompt, apiKey);
@@ -124,7 +126,7 @@ public class APIController {
 		tokenResponse.setProcessedPrompt(responseJSON.toString());
 
 		// semantic (1): use the list of extracted keywords to get a JSON list of papers
-		String semanticQuery = responseJSON.get("keywords").asText()
+		String semanticQuery = responseJSON.path("keywords").asText("")
 						.replace(",", "")
 						.replaceAll(";$", "").trim();
 
@@ -132,6 +134,8 @@ public class APIController {
 		 * Note: Fetched Papers are limited by a certain number in descending order from most cited 
 		 */
 		boolean citationSearch = userPrompt.getGraphViewType() == GraphViewType.CITATION;
+		// Preserve Semantic Scholar's broad relevance-ranked result set. Stance classification
+		// runs later over these papers and must not narrow citation search retrieval.
 		JsonNode fetchedPapers = semanticService.paperRelevanceSearch(semanticQuery).getBody();
 		if (citationSearch && fetchedPapers != null && fetchedPapers.isArray()) {
 			List<JsonNode> rankedPapers = new ArrayList<>();
@@ -469,36 +473,31 @@ public class APIController {
 
 		AppResponse appResponse = graphService.getAppResponseByGraphId(graphId);
 		String categorizedResponseBody = appResponse == null ? "" : appResponse.getGeneratedResponse();
-		boolean alreadyClassified = categorizedResponseBody != null && !categorizedResponseBody.isBlank();
-		if (categorizedResponseBody == null || categorizedResponseBody.isBlank()) {
+		JsonNode papers = requestBody.path("papers");
+		ResponseEntity<ObjectNode> formatted = categorizedResponseFormatting(categorizedResponseBody);
+		boolean storedClassification = categorizedResponseBody != null && !categorizedResponseBody.isBlank();
+		boolean storedHasAssignments = isValidClassification(formatted) && hasPaperAssignments(formatted.getBody());
+		boolean storedIsCurrentEmpty = isValidClassification(formatted)
+				&& !storedHasAssignments && hasCurrentClassificationVersion(categorizedResponseBody);
+		boolean forceEmptyReclassification = requestBody.path("force").asBoolean(false) && !storedHasAssignments;
+		boolean generateClassification = forceEmptyReclassification || !storedClassification
+				|| !isValidClassification(formatted)
+				|| (!storedHasAssignments && !storedIsCurrentEmpty);
+		boolean generatedThisRequest = false;
+		if (generateClassification) {
 			String prompt = requestBody.path("prompt").asText("");
-			JsonNode papers = requestBody.path("papers");
-			String opinionPrompt = String.format(
-					"Classify supplied papers against the user's research question using only evidence in their supplied titles and abstracts. "
-					+ "A paper is supporting or opposing only when its described findings directly support or challenge the question. Mentioning the topic or being relevant is not enough. "
-					+ "Leave papers unclassified when evidence is missing, ambiguous, mixed, or insufficient; do not force every paper into a group. Never put a paper in both groups. "
-					+ "Use concise group labels of at most 8 words and only supplied paperId values. "
-					+ "Return only an object with supporting and opposing objects whose values are arrays of paperId strings. "
-					+ "Question: %s\nPapers JSON: %s",
-					prompt, papers);
-			categorizedResponseBody = geminiService.callApi(opinionPrompt, apiKey);
+			categorizedResponseBody = geminiService.callApi(buildOpinionClassificationPrompt(prompt, papers, false), apiKey);
+			formatted = categorizedResponseFormatting(categorizedResponseBody);
+			generatedThisRequest = true;
 		}
 
-		ResponseEntity<ObjectNode> formatted = categorizedResponseFormatting(categorizedResponseBody);
-		if ((formatted == null || !formatted.getStatusCode().is2xxSuccessful() || formatted.getBody() == null)
-				&& alreadyClassified) {
-			// An older stored Gemini envelope may be truncated or malformed. Regenerate instead of failing every retry.
+		// Retry once if Gemini returned malformed JSON or no assignments despite usable paper metadata.
+		if (!isValidClassification(formatted)
+				|| (generatedThisRequest && !hasPaperAssignments(formatted.getBody()) && hasPaperEvidence(papers))) {
 			String prompt = requestBody.path("prompt").asText("");
-			JsonNode papers = requestBody.path("papers");
-			String retryPrompt = String.format(
-					"Classify supplied papers against the user's research question using only evidence in their supplied titles and abstracts. "
-					+ "A paper is supporting or opposing only when its described findings directly support or challenge the question. Mentioning the topic or being relevant is not enough. "
-					+ "Leave papers unclassified when evidence is missing, ambiguous, mixed, or insufficient; do not force every paper into a group. Never put a paper in both groups. "
-					+ "Use concise group labels of at most 8 words and only supplied paperId values. "
-					+ "Return only an object with supporting and opposing objects whose values are arrays of paperId strings. "
-					+ "Question: %s\nPapers JSON: %s", prompt, papers);
-			categorizedResponseBody = geminiService.callApi(retryPrompt, apiKey);
+			categorizedResponseBody = geminiService.callApi(buildOpinionClassificationPrompt(prompt, papers, true), apiKey);
 			formatted = categorizedResponseFormatting(categorizedResponseBody);
+			generatedThisRequest = true;
 		}
 		ObjectNode categorized = formatted == null || !formatted.getStatusCode().is2xxSuccessful() ? null : formatted.getBody();
 		if (categorized == null) {
@@ -508,9 +507,12 @@ public class APIController {
 			error.put("message", "Opinion classification returned an empty or invalid response. No labels were applied; retry classification later.");
 			return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(error);
 		}
-		if (appResponse != null && (!alreadyClassified || categorizedResponseBody != null)) {
+		if (appResponse != null && generatedThisRequest) {
 			try {
-				appResponse.setGeneratedResponse(new ObjectMapper().writeValueAsString(categorized));
+				ObjectMapper mapper = new ObjectMapper();
+				ObjectNode stored = categorized.deepCopy();
+				stored.put("_opinionClassificationVersion", OPINION_CLASSIFICATION_VERSION);
+				appResponse.setGeneratedResponse(mapper.writeValueAsString(stored));
 				appResponse.setGeneratedDateTime(LocalDateTime.now());
 				appResponseService.updateAppResponse(appResponse.getId(), appResponse);
 			} catch (Exception exception) {
@@ -518,7 +520,9 @@ public class APIController {
 						exception.getClass().getSimpleName());
 			}
 		}
-		if (!alreadyClassified && graph.getGraphType() == GraphType.OPINION) persistOpinionGraph(graph, categorized);
+		if (generatedThisRequest && graph.getGraphType() == GraphType.OPINION && hasPaperAssignments(categorized)) {
+			persistOpinionGraph(graph, categorized);
+		}
 
 		ObjectMapper objectMapper = new ObjectMapper();
 		ObjectNode result = objectMapper.createObjectNode();
@@ -527,6 +531,55 @@ public class APIController {
 		result.set("opposing", categorized.path("opposing").isObject()
 				? categorized.path("opposing") : objectMapper.createObjectNode());
 		return ResponseEntity.ok(result);
+	}
+
+	private String buildOpinionClassificationPrompt(String prompt, JsonNode papers, boolean retry) {
+		String instructions = "Evaluate each paper against the user's claim using its title, abstract, and TLDR text when available. "
+				+ "Classify findings that support the claim under supporting. Classify contrary findings, null results, harms, lack of the claimed benefit, and important exceptions under opposing. "
+				+ "Do not put every paper into supporting by default. Include each paper whose title, abstract, or TLDR gives a reasonable basis for one side; omit only papers with no useful evidence or genuinely indeterminate findings. Do not require the paper to use the words 'support' or 'oppose' explicitly. "
+				+ "Use each supplied paperId exactly and at most once. Return strict JSON with supporting and opposing objects mapping short evidence-based group labels to arrays of paperId strings. Use an empty object for a side with no supported papers. ";
+		if (retry) {
+			instructions += "The previous attempt returned no usable assignments. Re-evaluate every paper using the available title, abstract, and TLDR; infer the direction from the reported result even when the paper does not explicitly say it supports or opposes the claim. Check the opposing evidence separately before completing the JSON. ";
+		}
+		return String.format("%s\nClaim: %s\nPapers JSON: %s", instructions, prompt, papers);
+	}
+
+	private boolean isValidClassification(ResponseEntity<ObjectNode> formatted) {
+		return formatted != null && formatted.getStatusCode().is2xxSuccessful() && formatted.getBody() != null;
+	}
+
+	private boolean hasPaperAssignments(ObjectNode classification) {
+		if (classification == null) return false;
+		for (String stance : List.of("supporting", "opposing")) {
+			JsonNode groups = classification.path(stance);
+			if (!groups.isObject()) continue;
+			for (Map.Entry<String, JsonNode> entry : ((ObjectNode) groups).properties()) {
+				if (entry.getValue().isArray() && !entry.getValue().isEmpty()) return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean hasPaperEvidence(JsonNode papers) {
+		if (papers == null || !papers.isArray()) return false;
+		for (JsonNode paper : papers) {
+			if (hasText(paper.path("title")) || hasText(paper.path("abstract"))
+					|| hasText(paper.path("tldr")) || hasText(paper.path("tldr").path("text"))) return true;
+		}
+		return false;
+	}
+
+	private boolean hasText(JsonNode node) {
+		return node != null && node.isTextual() && !node.asText().isBlank();
+	}
+
+	private boolean hasCurrentClassificationVersion(String responseBody) {
+		try {
+			JsonNode stored = new ObjectMapper().readTree(responseBody);
+			return stored.path("_opinionClassificationVersion").asInt(0) >= OPINION_CLASSIFICATION_VERSION;
+		} catch (Exception ignored) {
+			return false;
+		}
 	}
 
 	private void persistOpinionGraph(Graph graph, ObjectNode categorizedResponseJSON) {
@@ -574,24 +627,9 @@ public class APIController {
 				categorized = mapper.readTree(textNode);
 			}
 			if (!isCategorizedResponse(categorized)) return invalidOpinionResponse(mapper);
-
-			for (String category : List.of("supporting", "opposing")) {
-				JsonNode groups = categorized.path(category);
-				if (!groups.isMissingNode() && !groups.isObject()) return invalidOpinionResponse(mapper);
-				if (groups.isObject()) {
-					for (Map.Entry<String, JsonNode> group : ((ObjectNode) groups).properties()) {
-						if (group.getKey().isBlank() || !group.getValue().isArray()) return invalidOpinionResponse(mapper);
-						for (JsonNode id : group.getValue()) {
-							if (!id.isTextual() || id.asText().isBlank()) return invalidOpinionResponse(mapper);
-						}
-					}
-				}
-			}
 			ObjectNode normalized = mapper.createObjectNode();
-		normalized.set("supporting", categorized.path("supporting").isObject()
-				? categorized.path("supporting") : mapper.createObjectNode());
-		normalized.set("opposing", categorized.path("opposing").isObject()
-				? categorized.path("opposing") : mapper.createObjectNode());
+			normalized.set("supporting", normalizeOpinionGroups(categorized.path("supporting"), "Supporting evidence", mapper));
+			normalized.set("opposing", normalizeOpinionGroups(categorized.path("opposing"), "Opposing evidence", mapper));
 			return ResponseEntity.ok(normalized);
 
 		} catch (Exception e) {
@@ -606,9 +644,88 @@ public class APIController {
 		return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(error);
 	}
 
+	private ObjectNode normalizeOpinionGroups(JsonNode rawGroups, String defaultLabel, ObjectMapper mapper) {
+		ObjectNode groups = mapper.createObjectNode();
+		if (rawGroups == null || rawGroups.isMissingNode() || rawGroups.isNull()) return groups;
+
+		if (rawGroups.isObject()) {
+			boolean groupObject = List.of("paperId", "paperIds", "paper_ids", "ids", "papers")
+					.stream().anyMatch(key -> rawGroups.has(key));
+			if (groupObject) {
+				String label = firstText(rawGroups, "label", "opinion", "group", "category");
+				List<String> ids = extractPaperIds(rawGroups);
+				if (!ids.isEmpty()) addIds(groups, label.isBlank() ? defaultLabel : label, ids);
+			} else {
+				for (Map.Entry<String, JsonNode> entry : ((ObjectNode) rawGroups).properties()) {
+					String label = entry.getKey().trim();
+					if (label.isBlank()) continue;
+					List<String> ids = extractPaperIds(entry.getValue());
+					if (!ids.isEmpty()) addIds(groups, label, ids);
+				}
+			}
+		} else if (rawGroups.isArray()) {
+			for (JsonNode item : rawGroups) {
+				if (!item.isObject() && !item.isTextual()) continue;
+				String label = item.isObject() ? firstText(item, "label", "opinion", "group", "category") : "";
+				List<String> ids = extractPaperIds(item);
+				if (!ids.isEmpty()) addIds(groups, label.isBlank() ? defaultLabel : label, ids);
+			}
+		}
+		return groups;
+	}
+
+	private List<String> extractPaperIds(JsonNode value) {
+		List<String> ids = new ArrayList<>();
+		if (value == null || value.isNull()) return ids;
+		if (value.isTextual()) {
+			String id = value.asText().trim();
+			if (!id.isBlank()) ids.add(id);
+			return ids;
+		}
+		if (value.isArray()) {
+			for (JsonNode item : value) ids.addAll(extractPaperIds(item));
+			return ids;
+		}
+		if (value.isObject()) {
+			for (String key : List.of("paperId", "paperIds", "paper_ids", "ids", "papers")) {
+				JsonNode idsNode = value.get(key);
+				if (idsNode != null) ids.addAll(extractPaperIds(idsNode));
+			}
+		}
+		return ids;
+	}
+
+	private String firstText(JsonNode node, String... fields) {
+		for (String field : fields) {
+			JsonNode value = node.path(field);
+			if (value.isTextual() && !value.asText().isBlank()) return value.asText().trim();
+		}
+		return "";
+	}
+
+	private void addIds(ObjectNode groups, String label, List<String> ids) {
+		var groupIds = groups.path(label).isArray()
+				? (tools.jackson.databind.node.ArrayNode) groups.path(label)
+				: groups.putArray(label);
+		for (String id : ids) {
+			boolean alreadyPresent = false;
+			for (JsonNode existing : groupIds) {
+				if (id.equals(existing.asText())) {
+					alreadyPresent = true;
+					break;
+				}
+			}
+			if (!alreadyPresent) groupIds.add(id);
+		}
+	}
+
 	private boolean isCategorizedResponse(JsonNode node) {
 		return node != null && node.isObject()
-				&& (node.path("supporting").isObject() || node.path("opposing").isObject());
+				&& (isOpinionCategory(node.path("supporting")) || isOpinionCategory(node.path("opposing")));
+	}
+
+	private boolean isOpinionCategory(JsonNode node) {
+		return node != null && (node.isObject() || node.isArray());
 	}
 
 	public ResponseEntity<ObjectNode> responseFormatting(String responseBody) {
@@ -629,11 +746,11 @@ public class APIController {
 			// Parse that shape before treating the entire response as search keywords.
 			try {
 				JsonNode structured = objectMapper.readTree(text);
-				if (structured != null && structured.isObject()
-						&& structured.path("keywords").isTextual()
-						&& !structured.path("keywords").asText().isBlank()) {
+				if (structured != null && structured.isObject()) {
+					String normalizedKeywords = normalizeKeywords(structured.path("keywords"));
+					if (normalizedKeywords.isBlank()) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(null);
 					ObjectNode responseJson = objectMapper.createObjectNode();
-					responseJson.put("keywords", structured.path("keywords").asText().trim());
+					responseJson.put("keywords", normalizedKeywords);
 					responseJson.put("sentiment", structured.path("sentiment").asText("unknown").trim());
 					return ResponseEntity.ok(responseJson);
 				}
@@ -670,5 +787,18 @@ public class APIController {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
+	}
+
+	private String normalizeKeywords(JsonNode value) {
+		if (value == null || value.isNull()) return "";
+		if (value.isTextual()) return value.asText().trim();
+		if (value.isArray()) {
+			List<String> keywords = new ArrayList<>();
+			for (JsonNode item : value) {
+				if (item.isTextual() && !item.asText().isBlank()) keywords.add(item.asText().trim());
+			}
+			return String.join(" ", keywords);
+		}
+		return "";
 	}
 }

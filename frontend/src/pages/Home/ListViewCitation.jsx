@@ -133,11 +133,11 @@ function ListViewCitation() {
         {citationsFailed && !citationsLoading && <GraphProgressNotice message="Some citation links are temporarily unavailable. Your paper results are still loaded." error actionLabel="Retry citation links" onAction={retryCitationLoads} />}
         {opinionStatus === 'loading' && <GraphProgressNotice message="Grouping papers by supporting and opposing findings…" />}
         {opinionStatus === 'failed' && <GraphProgressNotice message={opinionError} warning actionLabel="Retry classification" onAction={retryOpinions} />}
-        {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers could be confidently classified from the supplied metadata. All papers remain available without opinion labels." warning />}
+        {opinionStatus === 'unavailable' && <GraphProgressNotice message="No papers were grouped on the first pass. All papers remain available; retry classification if relevant evidence was missed." warning actionLabel="Retry classification" onAction={retryOpinions} />}
         <Grid container spacing={3}>
-          {/* Filters on the left with fixed positioning */}
-          <Grid item xs={3} style={{ position: 'fixed', top: '100px', left: 0, height: '80vh', overflowY: 'auto' }}>
-            <Box sx={{ paddingRight: '20px' }}>
+          {/* Keep filters in the page layout so status notices above cannot overlap them. */}
+          <Grid item xs={12} md={3} sx={{ alignSelf: 'flex-start', position: { md: 'sticky' }, top: { md: 2 }, height: 'fit-content' }}>
+            <Box sx={{ pr: { md: 2 } }}>
               <Typography variant="h6" sx={{ color: 'black', fontWeight: 'light' }}>Apply Filters</Typography>
               <br></br>
               <TextField fullWidth label="Search papers" placeholder="Title, author, or abstract" value={paperSearch} onChange={e => setPaperSearch(e.target.value)} sx={{ mb: 2 }} />
@@ -186,9 +186,8 @@ function ListViewCitation() {
             </Box>
           </Grid>
 
-          {/* Papers List on the right */}
-          <Grid item xs={9} style={{ marginLeft: '25%', marginTop:'2.2%', height: 'calc(100vh - 10vh)', overflowY: 'auto' }}>
-            <br></br>
+          {/* Papers share the responsive grid; the document scrolls naturally. */}
+          <Grid item xs={12} md={9} sx={{ minWidth: 0 }}>
             <Typography  sx={{ color: 'darkblue', fontWeight: 'light', fontSize:'20px' }}>Showing results for {formattedPrompt} </Typography>
             {filteredPapers.length > 0 ? (
               <PaperListOpinion 
