@@ -101,7 +101,8 @@ public class APIControllerTest {
 
         // responseFormatting method
         String geminiResponseKeywords = "{ \"candidates\": [ { \"content\": { \"parts\": [ { \"text\": \"{ \\\"keywords\\\": \\\"channel estimation\\\", \\\"sentiment\\\": \\\"positive\\\" }\" } ] } } ] }";
-        when(geminiService.callApi(contains("extract key words"), any())).thenReturn(geminiResponseKeywords);
+        when(geminiService.callApi(contains("Extract concise, broad research-search keywords"), any()))
+                .thenReturn(geminiResponseKeywords);
 
         ObjectNode responseJson = objectMapper.createObjectNode();
         responseJson.put("keywords", "channel estimation");
@@ -128,6 +129,7 @@ public class APIControllerTest {
 
         assertNotNull(response);
         assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(geminiService).callApi(contains("Question: Channel estimation with pilots is outdated"), any());
     }
 
     @Test
